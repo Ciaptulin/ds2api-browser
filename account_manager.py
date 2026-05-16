@@ -1,0 +1,121 @@
+import asyncio
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+
+from deepseek_browser import DeepSeekBrowser
+
+
+@dataclass
+class Account:
+    email: str
+    password: str
+    name: str = ""
+    proxy: Optional[str] = None
+    browser: Optional[DeepSeekBrowser] = field(default=None, repr=False)
+    in_use: bool = False
+    error_count: int = 0
+    logged_in: bool = False
+
+
+class AccountManager:
+    def __init__(self, max_inflight: int = 1):
+        self.accounts: Dict[str, Account] = {}
+        self.queue: deque = deque()
+        self.max_inflight = max_inflight
+        self._lock = asyncio.Lock()
+
+    def add_account(self, email: str, password: str, name: str = "", proxy: Optional[str] = None):
+        self.accounts[email] = Account(
+            email=email,
+            password=password,
+            name=name,
+            proxy=proxy,
+        )
+
+    async def acquire(self) -> Account:
+        async with self._lock:
+            for account in self.accounts.values():
+                if not account.in_use and account.error_count < 3:
+                    account.in_use = True
+                    return account
+
+        return await self._wait_for_account()
+
+    async def _wait_for_account(self) -> Account:
+        event = asyncio.Event()
+        async with self._lock:
+            self.queue.append(event)
+
+        await event.wait()
+
+        async with self._lock:
+            for account in self.accounts.values():
+                if not account.in_use and account.error_count < 3:
+                    account.in_use = True
+                    return account
+
+        raise RuntimeError("No account available")
+
+    async def release(self, account: Account):
+        async with self._lock:
+            account.in_use = False
+            if self.queue:
+                event = self.queue.popleft()
+                event.set()
+
+    async def mark_error(self, account: Account):
+        async with self._lock:
+            account.error_count += 1
+            account.in_use = False
+            if self.queue:
+                event = self.queue.popleft()
+                event.set()
+
+    async def get_or_create_browser(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
+        try:
+            if account.browser is None:
+                account.browser = DeepSeekBrowser(
+                    email=account.email,
+                    password=account.password,
+                    profile_dir="./profiles",
+                    headless=headless,
+                    humanize=True,
+                    proxy=account.proxy,
+                )
+                await account.browser.start()
+                account.logged_in = True
+            return account.browser
+        except Exception as e:
+            print(f"Error creating browser: {e}")
+            await self.close_browser(account)
+            raise
+
+    async def get_or_create_browser_with_retry(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
+        try:
+            return await self.get_or_create_browser(account, headless)
+        except Exception:
+            await self.close_browser(account)
+            return await self.get_or_create_browser(account, headless)
+
+    async def close_browser(self, account: Account):
+        if account.browser:
+            try:
+                await account.browser.close()
+            except:
+                pass
+            account.browser = None
+            account.logged_in = False
+
+    def get_stats(self) -> Dict:
+        total = len(self.accounts)
+        in_use = sum(1 for a in self.accounts.values() if a.in_use)
+        available = sum(1 for a in self.accounts.values() if not a.in_use and a.error_count < 3)
+        logged_in = sum(1 for a in self.accounts.values() if a.logged_in)
+        return {
+            "total": total,
+            "in_use": in_use,
+            "available": available,
+            "logged_in": logged_in,
+            "queue_size": len(self.queue),
+        }

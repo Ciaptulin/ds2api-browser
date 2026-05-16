@@ -1,0 +1,17 @@
+# 浏览器 profile 数据
+test-profile*/
+profiles/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# 账号数据（敏感信息）
+accounts.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
