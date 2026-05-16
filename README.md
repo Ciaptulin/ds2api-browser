@@ -149,8 +149,7 @@ ds2api-browser/
 ├── account_manager.py   # 账号池管理
 ├── config.py            # 配置管理
 ├── proxy.py             # 多协议代理（Claude/Gemini/Ollama）
-├── start.py             # 快速启动脚本
-├── run.py               # 运行入口
+├── run.py               # 启动入口
 ├── .env.example         # 环境变量模板
 ├── requirements.txt     # 依赖列表
 └── README.md            # 本文档
