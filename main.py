@@ -401,8 +401,8 @@ textarea::placeholder{color:var(--dim)}
     </div>
     <div class="panel-body" style="padding-bottom:8px">
       <table class="tbl">
-        <thead><tr><th>邮箱</th><th class="hide-mobile">备注</th><th>登录</th><th>状态</th><th class="hide-mobile">错误</th></tr></thead>
-        <tbody id="tbl"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        <thead><tr><th>邮箱</th><th class="hide-mobile">备注</th><th>登录</th><th>状态</th><th>禁言</th><th class="hide-mobile">错误</th></tr></thead>
+        <tbody id="tbl"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -503,6 +503,7 @@ async function loadStats(){
        <span>活跃 <b>${s.accounts.in_use}</b></span>
        <span>可用 <b>${s.accounts.available}</b></span>
        <span>在线 <b>${s.accounts.logged_in}</b></span>
+       <span>禁言 <b style="color:var(--red)">${s.accounts.muted||0}</b></span>
        <span>排队 <b>${s.accounts.queue_size}</b></span>`
   }catch(e){}
 }
@@ -516,12 +517,13 @@ async function loadAccounts(){
         <td class="hide-mobile">${a.name||'—'}</td>
         <td><span class="badge ${a.logged_in?'badge-on':'badge-off'}">${a.logged_in?'在线':'离线'}</span></td>
         <td><span class="badge ${a.in_use?'badge-on':'badge-idle'}">${a.in_use?'使用中':'空闲'}</span></td>
+        <td>${a.is_muted?`<span class="badge badge-off" title="${a.muted_until||'已禁言'}">禁言</span>`:'<span class="badge badge-idle">正常</span>'}</td>
         <td class="hide-mobile">${a.error_count>0?'<span class="badge badge-off">'+a.error_count+'</span>':'—'}</td>
       </tr>`
     }
-    document.getElementById('tbl').innerHTML=r||'<tr><td colspan="5" class="empty">暂无账号</td></tr>'
+    document.getElementById('tbl').innerHTML=r||'<tr><td colspan="6" class="empty">暂无账号</td></tr>'
   }catch(e){
-    document.getElementById('tbl').innerHTML='<tr><td colspan="5" style="color:var(--red)">'+e.message+'</td></tr>'
+    document.getElementById('tbl').innerHTML='<tr><td colspan="6" style="color:var(--red)">'+e.message+'</td></tr>'
   }
 }
 async function loadAll(){await loadStats();await loadAccounts()}

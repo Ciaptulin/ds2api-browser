@@ -16,6 +16,8 @@ class Account:
     in_use: bool = False
     error_count: int = 0
     logged_in: bool = False
+    is_muted: bool = False
+    muted_until: str = ""
 
 
 class AccountManager:
@@ -85,6 +87,9 @@ class AccountManager:
                 )
                 await account.browser.start()
                 account.logged_in = True
+                # Check mute status
+                account.is_muted = account.browser.is_muted()
+                account.muted_until = account.browser.muted_until()
             return account.browser
         except Exception as e:
             print(f"Error creating browser: {e}")
@@ -112,10 +117,25 @@ class AccountManager:
         in_use = sum(1 for a in self.accounts.values() if a.in_use)
         available = sum(1 for a in self.accounts.values() if not a.in_use and a.error_count < 3)
         logged_in = sum(1 for a in self.accounts.values() if a.logged_in)
+        muted = sum(1 for a in self.accounts.values() if a.is_muted)
+        accounts_list = [
+            {
+                "email": a.email,
+                "name": a.name,
+                "in_use": a.in_use,
+                "logged_in": a.logged_in,
+                "is_muted": a.is_muted,
+                "muted_until": a.muted_until,
+                "error_count": a.error_count,
+            }
+            for a in self.accounts.values()
+        ]
         return {
             "total": total,
             "in_use": in_use,
             "available": available,
             "logged_in": logged_in,
+            "muted": muted,
             "queue_size": len(self.queue),
+            "accounts": accounts_list,
         }
