@@ -105,13 +105,13 @@ async def chat_completions(
     account = await manager.acquire()
 
     try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
+        api = await manager.get_api_with_retry(account)
 
         if request.stream:
             async def stream_with_cleanup():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 try:
-                    async for chunk in browser.stream_message(prompt, timeout=120, model=request.model):
+                    async for chunk in api.send_message(prompt, model=request.model, stream=True, timeout=120):
                         data = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -152,7 +152,7 @@ async def chat_completions(
                 media_type="text/event-stream",
             )
 
-        response_text = await browser.send_message(prompt, timeout=120, model=request.model)
+        response_text = await api.send_message(prompt, model=request.model, stream=False, timeout=120)
 
         await manager.release(account)
 
@@ -211,12 +211,12 @@ async def anthropic_messages(request: Request, authorization: str = Header(...))
     account = await manager.acquire()
 
     try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
+        api = await manager.get_api_with_retry(account)
 
         if stream:
             async def stream_with_cleanup():
                 try:
-                    async for chunk in browser.stream_message(prompt, timeout=120, model=model):
+                    async for chunk in api.send_message(prompt, model=model, stream=True, timeout=120):
                         data = {
                             "type": "content_block_delta",
                             "index": 0,
@@ -235,7 +235,7 @@ async def anthropic_messages(request: Request, authorization: str = Header(...))
                 media_type="text/event-stream",
             )
 
-        response_text = await browser.send_message(prompt, timeout=120, model=model)
+        response_text = await api.send_message(prompt, model=model, stream=False, timeout=120)
 
         await manager.release(account)
 
@@ -272,9 +272,9 @@ async def gemini_generate(model: str, request: Request, authorization: str = Hea
     account = await manager.acquire()
 
     try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
+        api = await manager.get_api_with_retry(account)
 
-        response_text = await browser.send_message(prompt, timeout=120, model=model)
+        response_text = await api.send_message(prompt, model=model, stream=False, timeout=120)
 
         await manager.release(account)
 
@@ -315,11 +315,11 @@ async def gemini_stream_generate(model: str, request: Request, authorization: st
     account = await manager.acquire()
 
     try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
+        api = await manager.get_api_with_retry(account)
 
         async def stream_with_cleanup():
             try:
-                async for chunk in browser.stream_message(prompt, timeout=120, model=model):
+                async for chunk in api.send_message(prompt, model=model, stream=True, timeout=120):
                     data = {
                         "candidates": [
                             {
@@ -442,12 +442,39 @@ async def list_accounts(admin_key: str = Header(...)):
         accounts.append({
             "email": email,
             "name": acc.name,
-            "in_use": acc.in_use,
+            "proxy": acc.proxy,
+            "in_use_count": acc.in_use_count,
+            "max_concurrent": acc.max_concurrent,
             "logged_in": acc.logged_in,
             "error_count": acc.error_count,
         })
 
-    return {"accounts": accounts, "total": len(accounts)}
+    return {
+        "accounts": accounts,
+        "total": len(accounts),
+        "max_concurrent_per_account": config.browser.max_concurrent_per_account,
+        "default_proxy": config.default_proxy,
+    }
+
+
+@app.get("/admin/config")
+async def get_config(admin_key: str = Header(...)):
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    return {
+        "server": {
+            "host": config.server.host,
+            "port": config.server.port,
+        },
+        "browser": {
+            "headless": config.browser.headless,
+            "max_concurrent_per_account": config.browser.max_concurrent_per_account,
+            "timeout": config.browser.timeout,
+        },
+        "default_proxy": config.default_proxy,
+        "account_count": len(manager.accounts),
+    }
 
 
 @app.on_event("startup")

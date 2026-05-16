@@ -1,10 +1,9 @@
 import asyncio
-import random
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
-from deepseek_browser import DeepSeekBrowser
+from deepseek_api import DeepSeekAPI
 
 
 @dataclass
@@ -13,9 +12,9 @@ class Account:
     password: str
     name: str = ""
     proxy: Optional[str] = None
-    browser: Optional[DeepSeekBrowser] = field(default=None, repr=False)
-    in_use_count: int = 0  # 当前并发数
-    max_concurrent: int = 3  # 最大并发数
+    api: Optional[DeepSeekAPI] = field(default=None, repr=False)
+    in_use_count: int = 0
+    max_concurrent: int = 3
     error_count: int = 0
     logged_in: bool = False
 
@@ -38,13 +37,11 @@ class AccountManager:
 
     async def acquire(self) -> Account:
         async with self._lock:
-            # 找一个可用的账号（并发数未满）
             for account in self.accounts.values():
                 if account.in_use_count < account.max_concurrent and account.error_count < 3:
                     account.in_use_count += 1
                     return account
 
-        # 没有可用账号，等待
         return await self._wait_for_account()
 
     async def _wait_for_account(self) -> Account:
@@ -77,39 +74,36 @@ class AccountManager:
                 event = self.queue.popleft()
                 event.set()
 
-    async def get_or_create_browser(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
+    async def get_api(self, account: Account) -> DeepSeekAPI:
         try:
-            if account.browser is None:
-                account.browser = DeepSeekBrowser(
+            if account.api is None:
+                account.api = DeepSeekAPI(
                     email=account.email,
                     password=account.password,
-                    profile_dir="./profiles",
-                    headless=headless,
-                    humanize=True,
                     proxy=account.proxy,
                 )
-                await account.browser.start()
+                await account.api.login()
                 account.logged_in = True
-            return account.browser
+            return account.api
         except Exception as e:
-            print(f"Error creating browser: {e}")
-            await self.close_browser(account)
+            print(f"Error creating API: {e}")
+            await self.close_api(account)
             raise
 
-    async def get_or_create_browser_with_retry(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
+    async def get_api_with_retry(self, account: Account) -> DeepSeekAPI:
         try:
-            return await self.get_or_create_browser(account, headless)
+            return await self.get_api(account)
         except Exception:
-            await self.close_browser(account)
-            return await self.get_or_create_browser(account, headless)
+            await self.close_api(account)
+            return await self.get_api(account)
 
-    async def close_browser(self, account: Account):
-        if account.browser:
+    async def close_api(self, account: Account):
+        if account.api:
             try:
-                await account.browser.close()
+                await account.api.close()
             except:
                 pass
-            account.browser = None
+            account.api = None
             account.logged_in = False
 
     def get_stats(self) -> Dict:

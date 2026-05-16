@@ -1,14 +1,19 @@
 import asyncio
 import random
 import time
+import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
+import httpx
 from cloakbrowser import launch_persistent_context_async
 
 
 class DeepSeekBrowser:
     DEEPSEEK_URL = "https://chat.deepseek.com"
+    LOGIN_URL = "https://chat.deepseek.com/api/v0/users/login"
+    CREATE_SESSION_URL = "https://chat.deepseek.com/api/v0/chat_session/create"
+    COMPLETION_URL = "https://chat.deepseek.com/api/v0/chat/completion"
 
     def __init__(
         self,
@@ -29,9 +34,14 @@ class DeepSeekBrowser:
         self.page = None
         self._logged_in = False
         self._ready = False
+        self._token = None
+        self._session_id = None
 
     async def start(self):
         self.profile_dir.mkdir(parents=True, exist_ok=True)
+
+        # 先用 API 登录获取 token
+        await self._login_via_api()
 
         self.context = await launch_persistent_context_async(
             user_data_dir=str(self.profile_dir),
@@ -43,60 +53,67 @@ class DeepSeekBrowser:
         )
 
         self.page = await self.context.new_page()
+        
+        # 设置 token cookie
+        if self._token:
+            await self.context.add_cookies([{
+                "name": "token",
+                "value": self._token,
+                "domain": ".deepseek.com",
+                "path": "/",
+            }])
+
         await self.page.goto(self.DEEPSEEK_URL, timeout=60000)
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
 
-        await self._check_login_state()
-
-    async def _check_login_state(self):
-        current_url = self.page.url
-
-        if '/sign_in' in current_url:
-            await self._auto_login()
-        else:
-            try:
-                await self.page.wait_for_selector('textarea', timeout=10000)
-                self._logged_in = True
-                self._ready = True
-            except Exception:
-                await self._auto_login()
-
-    async def _auto_login(self):
-        print(f"Logging in as {self.email}...")
-
-        try:
-            email_input = self.page.locator('input[placeholder*="邮箱"], input[placeholder*="手机"], input[type="text"]').first
-            await email_input.wait_for(state="visible", timeout=10000)
-            await email_input.fill(self.email)
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            print(f"Email input error: {e}")
-            raise
-
-        try:
-            password_input = self.page.locator('input[type="password"]').first
-            await password_input.wait_for(state="visible", timeout=5000)
-            await password_input.fill(self.password)
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            print(f"Password input error: {e}")
-            raise
-
-        try:
-            login_button = self.page.locator('button:has-text("登录")').first
-            await login_button.click()
+        # 检查是否登录成功
+        if '/sign_in' in self.page.url:
+            # 如果 cookie 方式失败，尝试通过 JS 注入 token
+            await self.page.evaluate(f"localStorage.setItem('token', '{self._token}')")
+            await self.page.reload()
             await asyncio.sleep(3)
-        except Exception as e:
-            print(f"Login button error: {e}")
-            raise
 
-        try:
-            await self.page.wait_for_selector('textarea', timeout=30000)
+        if '/sign_in' not in self.page.url:
             self._logged_in = True
             self._ready = True
-            print("Login successful!")
-        except Exception:
-            raise Exception("Login failed")
+        else:
+            raise Exception("Login failed - still on sign_in page")
+
+    async def _login_via_api(self):
+        """通过 DeepSeek API 登录获取 token"""
+        async with httpx.AsyncClient() as client:
+            device_id = str(uuid.uuid4())
+            payload = {
+                "email": self.email,
+                "password": self.password,
+                "device_id": device_id,
+                "os": "android",
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "DeepSeek-Android/2.0",
+            }
+            
+            resp = await client.post(self.LOGIN_URL, json=payload, headers=headers, timeout=30)
+            data = resp.json()
+            
+            code = data.get("code", -1)
+            if code != 0:
+                msg = data.get("msg", "Unknown error")
+                raise Exception(f"API login failed: {msg}")
+            
+            biz_data = data.get("data", {})
+            biz_code = biz_data.get("biz_code", -1)
+            if biz_code != 0:
+                biz_msg = biz_data.get("biz_msg", "Unknown error")
+                raise Exception(f"API login failed: {biz_msg}")
+            
+            user = biz_data.get("biz_data", {}).get("user", {})
+            self._token = user.get("token", "")
+            
+            if not self._token:
+                raise Exception("No token received from API")
 
     async def _human_delay(self, min_ms: int = 300, max_ms: int = 1500):
         delay = random.uniform(min_ms, max_ms) / 1000
@@ -180,35 +197,37 @@ class DeepSeekBrowser:
         last_text = ""
         stable_count = 0
 
-        skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天', 'huan********dja@gmail.com']
+        skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话']
 
         while time.time() < deadline:
             try:
-                text = await self.page.inner_text('body')
+                try:
+                    response_elements = await self.page.query_selector_all('.ds-markdown--block')
+                    if response_elements:
+                        last_response = response_elements[-1]
+                        current_text = await last_response.inner_text()
+                        current_text = current_text.strip()
+                    else:
+                        main_content = await self.page.query_selector('main, .chat-container, [class*="chat"]')
+                        if main_content:
+                            current_text = await main_content.inner_text()
+                        else:
+                            current_text = await self.page.inner_text('body')
+                except Exception:
+                    current_text = await self.page.inner_text('body')
 
-                lines = text.split('\n')
-                response_started = False
-                response_text = []
-
+                lines = current_text.split('\n')
+                filtered_lines = []
                 for line in lines:
                     line = line.strip()
                     if not line:
                         continue
-
-                    if line == '内容由 AI 生成，请仔细甄别':
-                        break
-
                     if any(phrase in line for phrase in skip_phrases):
                         continue
+                    filtered_lines.append(line)
 
-                    if response_started:
-                        response_text.append(line)
-
-                    if prompt and prompt in line:
-                        response_started = True
-
-                if response_text:
-                    current_text = '\n'.join(response_text)
+                if filtered_lines:
+                    current_text = '\n'.join(filtered_lines)
 
                     if current_text != last_text:
                         last_text = current_text
@@ -250,37 +269,39 @@ class DeepSeekBrowser:
             last_text = ""
             stable_count = 0
 
-            skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天', 'huan********dja@gmail.com']
+            skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话']
 
             await asyncio.sleep(3)
 
             while time.time() < deadline:
                 try:
-                    text = await self.page.inner_text('body')
+                    try:
+                        response_elements = await self.page.query_selector_all('.ds-markdown--block')
+                        if response_elements:
+                            last_response = response_elements[-1]
+                            current_text = await last_response.inner_text()
+                            current_text = current_text.strip()
+                        else:
+                            main_content = await self.page.query_selector('main, .chat-container, [class*="chat"]')
+                            if main_content:
+                                current_text = await main_content.inner_text()
+                            else:
+                                current_text = await self.page.inner_text('body')
+                    except Exception:
+                        current_text = await self.page.inner_text('body')
 
-                    lines = text.split('\n')
-                    response_started = False
-                    response_text = []
-
+                    lines = current_text.split('\n')
+                    filtered_lines = []
                     for line in lines:
                         line = line.strip()
                         if not line:
                             continue
-
-                        if line == '内容由 AI 生成，请仔细甄别':
-                            break
-
                         if any(phrase in line for phrase in skip_phrases):
                             continue
+                        filtered_lines.append(line)
 
-                        if response_started:
-                            response_text.append(line)
-
-                        if prompt and prompt in line:
-                            response_started = True
-
-                    if response_text:
-                        current_text = '\n'.join(response_text)
+                    if filtered_lines:
+                        current_text = '\n'.join(filtered_lines)
 
                         if current_text != last_text:
                             new_chunk = current_text[len(last_text):]
