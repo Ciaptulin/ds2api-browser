@@ -480,156 +480,251 @@ ADMIN_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DS2API · 终端</title>
+<title>DS2API · 控制台</title>
 <style>
-:root{--bg:#080c12;--panel:#0f1620;--border:#1a2738;--text:#a8c0d8;--dim:#4a6078;--accent:#64d8ff;--green:#4ade80;--red:#f87171;--amber:#fbbf24}
+:root{--bg:#060b10;--panel:#0b1219;--border:#15202e;--text:#9bb5cf;--dim:#3d5268;--accent:#5cc8ff;--green:#3fb950;--red:#f85149;--amber:#d29922;--row-hover:rgba(92,200,255,.03)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'JetBrains Mono','Sarasa Mono SC','Source Code Pro','Cascadia Code',monospace;background:var(--bg);color:var(--text);min-height:100vh;font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased}
-body::before{content:'';position:fixed;inset:0;background:
-  radial-gradient(ellipse 80% 50% at 50% -20%,rgba(100,216,255,.04),transparent),
-  linear-gradient(180deg,transparent 0%,rgba(100,216,255,.01) 50%,transparent 100%);
-  pointer-events:none;z-index:0}
+body{font-family:'JetBrains Mono','Sarasa Mono SC','Cascadia Code',Consolas,monospace;background:var(--bg);color:var(--text);font-size:12.5px;line-height:1.55;-webkit-font-smoothing:antialiased;min-height:100vh}
+body::after{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 50% -10%,rgba(92,200,255,.025),transparent);pointer-events:none;z-index:0}
 
-.topbar{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:12px}
-.topbar .dot{width:7px;height:7px;background:var(--green);box-shadow:0 0 6px var(--green);animation:glow 2s ease-in-out infinite}
-.topbar .title{font-weight:800;font-size:14px;color:var(--accent);letter-spacing:2px}
-.topbar .tag{font-size:10px;color:var(--dim);letter-spacing:1px;border:1px solid var(--border);padding:3px 8px}
-@keyframes glow{0%,100%{box-shadow:0 0 4px var(--green)}50%{box-shadow:0 0 14px var(--green)}}
+/* ── topbar ── */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px}
+.topbar .logo{font-weight:800;font-size:13px;color:var(--accent);letter-spacing:1.5px}
+.topbar .sep{color:var(--dim);margin:0 4px}
+.topbar .mode{font-size:10px;color:var(--dim);border:1px solid var(--border);padding:2px 8px;letter-spacing:1px}
+.topbar .stat-inline{display:flex;gap:16px;margin-left:auto;font-size:10px}
+.topbar .stat-inline span{color:var(--dim)}
+.topbar .stat-inline b{color:var(--accent);font-weight:800}
+@media(max-width:700px){.topbar .stat-inline{display:none}}
 
-.main{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:28px 16px}
+/* ── main grid ── */
+.main{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:20px 16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media(max-width:800px){.main{grid-template-columns:1fr;padding:14px 10px;gap:12px}}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:28px}
-@media(max-width:600px){.grid{grid-template-columns:repeat(2,1fr);gap:8px}}
+/* ── panel ── */
+.panel{border:1px solid var(--border);background:var(--panel)}
+.panel-head{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(92,200,255,.015)}
+.panel-head h2{font-size:11px;color:var(--accent);letter-spacing:1.5px;font-weight:800}
+.panel-head .hint{color:var(--dim);font-size:10px}
+.panel-body{padding:14px}
 
-.stat{background:var(--panel);border:1px solid var(--border);padding:18px 16px;position:relative;overflow:hidden}
-.stat::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(100,216,255,.03) 0%,transparent 60%);pointer-events:none}
-.stat .num{font-size:42px;font-weight:800;color:var(--accent);line-height:1}
-.stat .label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:2px;margin-top:4px}
+/* ── form elements ── */
+select,textarea,input[type=text]{width:100%;background:var(--bg);border:1px solid var(--border);padding:8px 10px;color:var(--text);font-family:inherit;font-size:12px;line-height:1.5}
+select{padding:7px 10px;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%233d5268'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+select:focus,textarea:focus,input:focus{outline:none;border-color:var(--accent)}
+textarea{min-height:80px;resize:vertical}
+textarea::placeholder{color:var(--dim)}
+.row{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
 
-.card{background:var(--panel);border:1px solid var(--border);margin-bottom:16px}
-.card-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(100,216,255,.02)}
-.card-head h2{font-size:11px;color:var(--accent);letter-spacing:2px;font-weight:800}
-.card-head .prompt{color:var(--dim);font-weight:800;margin-right:6px}
-.card-body{padding:16px 18px}
+/* ── buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.8px;white-space:nowrap;transition:all .12s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn-accent{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn-accent:hover{background:transparent;color:var(--accent)}
+.btn-sm{padding:5px 10px;font-size:10px}
 
-table{width:100%;border-collapse:collapse}
-thead{border-bottom:2px solid var(--border)}
-th{padding:10px 8px;text-align:left;color:var(--dim);font-weight:700;font-size:10px;letter-spacing:1px;white-space:nowrap}
-td{padding:9px 8px;border-bottom:1px solid rgba(26,39,56,.6);word-break:break-all;font-size:12px}
-tr:hover td{background:rgba(100,216,255,.02)}
-@media(max-width:600px){th{font-size:9px;padding:8px 4px}td{font-size:11px;padding:8px 4px}}
+/* ── table ── */
+.tbl{width:100%;border-collapse:collapse;font-size:11px}
+.tbl thead{border-bottom:2px solid var(--border)}
+.tbl th{padding:7px 6px;text-align:left;color:var(--dim);font-weight:700;font-size:9.5px;letter-spacing:.8px;white-space:nowrap}
+.tbl td{padding:7px 6px;border-bottom:1px solid rgba(21,32,46,.6);word-break:break-all}
+.tbl tr:hover td{background:var(--row-hover)}
+@media(max-width:500px){.tbl th,.tbl td{font-size:10px;padding:6px 4px}}
 
-.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap}
-.badge::before{content:'';width:5px;height:5px;display:inline-block}
-.badge-on{color:var(--green);border:1px solid rgba(74,222,128,.35)}.badge-on::before{background:var(--green)}
-.badge-off{color:var(--red);border:1px solid rgba(248,113,113,.3)}.badge-off::before{background:var(--red)}
+/* ── badge ── */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;font-size:9.5px;font-weight:700;letter-spacing:.4px;white-space:nowrap}
+.badge::before{content:'';width:4px;height:4px}
+.badge-on{color:var(--green);border:1px solid rgba(63,185,80,.35)}.badge-on::before{background:var(--green)}
+.badge-off{color:var(--red);border:1px solid rgba(248,81,73,.3)}.badge-off::before{background:var(--red)}
 .badge-idle{color:var(--dim);border:1px solid var(--border)}.badge-idle::before{background:var(--dim)}
 
-.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1px;transition:all .15s;white-space:nowrap}
-.btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(100,216,255,.04)}
-.btn-accent{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:800}
-.btn-accent:hover{background:transparent;color:var(--accent)}
-.btn-sm{padding:6px 12px;font-size:10px}
-@media(max-width:600px){.btn{padding:7px 12px;font-size:10px}}
+/* ── response area ── */
+#response{background:var(--bg);border:1px solid var(--border);border-top:none;padding:12px;min-height:120px;max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;white-space:pre-wrap}
+#response:empty::after{content:'等待发送…';color:var(--dim)}
+.response-status{display:flex;justify-content:space-between;padding:6px 10px;font-size:10px;border-bottom:1px solid var(--border)}
+.response-status .ok{color:var(--green)}.response-status .err{color:var(--red)}
 
-textarea{width:100%;background:var(--bg);border:1px solid var(--border);padding:12px;color:var(--text);font-family:inherit;font-size:12px;line-height:1.7;min-height:90px;resize:vertical}
-textarea:focus{outline:none;border-color:var(--accent);box-shadow:inset 0 0 0 1px rgba(100,216,255,.1)}
-textarea::placeholder{color:var(--dim)}
+/* ── toast ── */
+.toast{position:fixed;top:20px;right:20px;z-index:99;padding:10px 18px;font-size:11px;font-weight:700;letter-spacing:.5px;animation:slide .25s;border:1px solid}
+.toast-ok{background:rgba(63,185,80,.1);color:var(--green);border-color:rgba(63,185,80,.25)}
+.toast-err{background:rgba(248,81,73,.1);color:var(--red);border-color:rgba(248,81,73,.25)}
+@keyframes slide{from{transform:translateY(-8px);opacity:0}to{transform:translateY(0);opacity:1}}
 
-.help{font-size:10px;color:var(--dim);margin-bottom:10px;letter-spacing:.5px;opacity:.7}
-
-.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+/* ── misc ── */
+.empty{color:var(--dim);padding:20px 0;text-align:center;font-size:11px}
+.hidden{display:none}
 .spacer{flex:1}
-
-.toast{position:fixed;top:24px;right:24px;z-index:99;padding:12px 20px;font-size:12px;font-weight:700;letter-spacing:.5px;animation:slide .25s;backdrop-filter:blur(8px)}
-.toast-ok{background:rgba(74,222,128,.12);color:var(--green);border:1px solid rgba(74,222,128,.25)}
-.toast-err{background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.25)}
-@keyframes slide{from{transform:translateY(-10px);opacity:0}to{transform:translateY(0);opacity:1}}
-
-.empty{color:var(--dim);padding:32px 0;text-align:center;font-size:12px;letter-spacing:1px}
-.hide-mobile{display:table-cell}
-@media(max-width:600px){.hide-mobile{display:none}}
-
-.pulse{animation:flicker 3s ease-in-out infinite}
-@keyframes flicker{0%,100%{opacity:1}50%{opacity:.5}}
-
-.ellipsis{max-width:180px;overflow:hidden;text-overflow:ellipsis;display:block}
+.ellipsis{max-width:160px;overflow:hidden;text-overflow:ellipsis;display:block}
+.help{font-size:10px;color:var(--dim);margin-bottom:8px;opacity:.7}
+.imp{padding:12px;margin-top:12px}
+@media(max-width:500px){.hide-mobile{display:none}}
 </style>
 </head>
 <body>
 <div class="topbar">
-  <div class="dot"></div>
-  <span class="title">DS2API</span>
-  <div class="spacer" style="flex:1"></div>
-  <span class="tag">▸ 浏览器模式</span>
+  <span class="logo">▸ DS2API</span>
+  <span class="mode">浏览器模式</span>
+  <div class="stat-inline" id="topStats">
+    <span>账号 <b>—</b></span>
+    <span>活跃 <b>—</b></span>
+    <span>可用 <b>—</b></span>
+    <span>在线 <b>—</b></span>
+    <span>排队 <b>—</b></span>
+  </div>
 </div>
 
 <div class="main">
-  <!-- 统计卡片 -->
-  <div class="grid" id="stats">
-    <div class="stat"><div class="num">—</div><div class="label">账号总数</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">使用中</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">可用</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">已登录</div></div>
-    <div class="stat"><div class="num">—</div><div class="label">排队中</div></div>
+
+  <!-- ═══ 左栏：接口测试 ═══ -->
+  <div class="panel" style="grid-row:span 1">
+    <div class="panel-head">
+      <h2>接口测试</h2>
+      <span class="hint">/v1/chat/completions</span>
+    </div>
+    <div class="panel-body">
+      <div class="row">
+        <select id="model" style="flex:1">
+          <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+          <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+          <option value="deepseek-chat">deepseek-chat</option>
+          <option value="deepseek-reasoner">deepseek-reasoner</option>
+        </select>
+        <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <input type="checkbox" id="stream" checked> 流式
+        </label>
+      </div>
+      <textarea id="prompt" placeholder="输入消息…">你好，用一句话介绍你自己</textarea>
+      <div class="row" style="margin-top:10px;margin-bottom:0">
+        <button class="btn btn-accent" onclick="sendMsg()" id="sendBtn">▸ 发送</button>
+        <button class="btn btn-sm" onclick="sendMsg()" id="sendBtn2" style="display:none">▸ 发送</button>
+        <span id="reqStatus" style="font-size:10px;color:var(--dim)"></span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" onclick="document.getElementById('response').textContent=''">清空</button>
+      </div>
+      <div style="margin-top:12px;border:1px solid var(--border);border-bottom:none">
+        <div class="response-status">
+          <span id="respLabel">响应</span>
+          <span id="respTime"></span>
+        </div>
+        <div id="response"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- 账号列表 -->
-  <div class="card">
-    <div class="card-head">
-      <h2><span class="prompt">&gt;</span>账号列表</h2>
-      <button class="btn btn-sm" onclick="loadAll()">刷新</button>
+  <!-- ═══ 右栏：账号管理 ═══ -->
+  <div class="panel">
+    <div class="panel-head">
+      <h2>账号管理</h2>
+      <button class="btn btn-sm" onclick="loadAccounts()">刷新</button>
     </div>
-    <div class="card-body">
-      <table>
+    <div class="panel-body" style="padding-bottom:8px">
+      <table class="tbl">
         <thead><tr><th>邮箱</th><th class="hide-mobile">备注</th><th>登录</th><th>状态</th><th class="hide-mobile">错误</th></tr></thead>
-        <tbody id="tbl"><tr><td colspan="5" class="empty">正在加载…</td></tr></tbody>
+        <tbody id="tbl"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 导入账号 -->
-  <div class="card">
-    <div class="card-head">
-      <h2><span class="prompt">&gt;</span>导入账号</h2>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>导入账号</h2>
     </div>
-    <div class="card-body">
-      <div class="help">格式：邮箱:密码 ，每行一个账号</div>
-      <textarea id="inp" placeholder="user@gmail.com:password"></textarea>
-      <div class="bar">
+    <div class="panel-body">
+      <div class="help">格式：邮箱:密码 ，每行一个</div>
+      <textarea id="inp" placeholder="user@gmail.com:password&#10;user2@gmail.com:password" style="min-height:70px"></textarea>
+      <div class="row" style="margin-top:10px;margin-bottom:0">
         <button class="btn btn-accent" onclick="doImport()">▸ 导入</button>
-        <span id="msg" style="font-size:11px;color:var(--dim)"></span>
+        <span id="msg" style="font-size:10px;color:var(--dim)"></span>
       </div>
     </div>
   </div>
+
 </div>
 
 <script>
 const H=location.origin
+const KEY='sbgptwcnmsbopenaiwdnmdcnmsbchat'
+
 function toast(m,ok){
   const e=document.createElement('div')
   e.className='toast toast-'+(ok?'ok':'err')
   e.textContent=m
   document.body.appendChild(e)
-  setTimeout(()=>e.remove(),2800)
+  setTimeout(()=>e.remove(),2500)
 }
+
 async function api(p,o={}){
   const hd={};if(o.json)hd['Content-Type']='application/json'
   Object.assign(hd,o.headers||{})
   const r=await fetch(H+p,{headers:hd,method:o.method||'GET',body:o.body})
-  if(!r.ok){const e=await r.text();throw new Error(e||r.status)}
+  if(!r.ok){const t=await r.text();throw new Error(t||r.status)}
   return r.json()
 }
-async function loadAll(){
+
+/* ── 接口测试 ── */
+async function sendMsg(){
+  const model=document.getElementById('model').value
+  const prompt=document.getElementById('prompt').value.trim()
+  const stream=document.getElementById('stream').checked
+  const resp=document.getElementById('response')
+  const status=document.getElementById('reqStatus')
+  const timeEl=document.getElementById('respTime')
+  const btn=document.getElementById('sendBtn')
+
+  if(!prompt)return toast('请输入消息',0)
+  btn.disabled=true;btn.textContent='…'
+  resp.textContent='';timeEl.textContent=''
+
+  const t0=Date.now()
+  try{
+    const r=await fetch(H+'/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY},
+      body:JSON.stringify({model,messages:[{role:'user',content:prompt}],stream})
+    })
+
+    if(stream){
+      const reader=r.body.getReader(),dec=new TextDecoder()
+      let full=''
+      while(1){
+        const{done,value}=await reader.read()
+        if(done)break
+        for(const line of dec.decode(value,{stream:true}).split('\\n')){
+          if(!line.startsWith('data: '))continue
+          const d=line.slice(6).trim()
+          if(d==='[DONE]')continue
+          try{const j=JSON.parse(d);const c=j.choices?.[0]?.delta?.content;if(c){full+=c;resp.textContent=full}}
+          catch(e){}
+        }
+      }
+      timeEl.textContent=((Date.now()-t0)/1000).toFixed(1)+'s'
+      status.textContent='流式完成';status.className='ok'
+    }else{
+      const d=await r.json()
+      resp.textContent=d.choices?.[0]?.message?.content||JSON.stringify(d,null,2)
+      timeEl.textContent=((Date.now()-t0)/1000).toFixed(1)+'s'
+      status.textContent=r.status+' OK';status.className='ok'
+    }
+  }catch(e){
+    resp.textContent='错误: '+e.message
+    status.textContent='失败';status.className='err'
+  }
+  btn.disabled=false;btn.textContent='▸ 发送'
+}
+
+/* ── 统计 & 账号 ── */
+async function loadStats(){
   try{
     const s=await api('/readyz')
-    document.getElementById('stats').innerHTML=
-      `<div class="stat"><div class="num">${s.accounts.total}</div><div class="label">账号总数</div></div>
-       <div class="stat"><div class="num">${s.accounts.in_use}</div><div class="label">使用中</div></div>
-       <div class="stat"><div class="num">${s.accounts.available}</div><div class="label">可用</div></div>
-       <div class="stat"><div class="num">${s.accounts.logged_in}</div><div class="label">已登录</div></div>
-       <div class="stat"><div class="num">${s.accounts.queue_size}</div><div class="label">排队中</div></div>`
+    document.getElementById('topStats').innerHTML=
+      `<span>账号 <b>${s.accounts.total}</b></span>
+       <span>活跃 <b>${s.accounts.in_use}</b></span>
+       <span>可用 <b>${s.accounts.available}</b></span>
+       <span>在线 <b>${s.accounts.logged_in}</b></span>
+       <span>排队 <b>${s.accounts.queue_size}</b></span>`
   }catch(e){}
+}
+async function loadAccounts(){
   try{
     const d=await api('/admin/accounts',{headers:{'admin-key':'admin'}})
     let r=''
@@ -637,26 +732,28 @@ async function loadAll(){
       r+=`<tr>
         <td><span class="ellipsis">${a.email}</span></td>
         <td class="hide-mobile">${a.name||'—'}</td>
-        <td><span class="badge ${a.logged_in?'badge-on':'badge-off'}">${a.logged_in?'已登录':'未登录'}</span></td>
+        <td><span class="badge ${a.logged_in?'badge-on':'badge-off'}">${a.logged_in?'在线':'离线'}</span></td>
         <td><span class="badge ${a.in_use?'badge-on':'badge-idle'}">${a.in_use?'使用中':'空闲'}</span></td>
-        <td class="hide-mobile">${a.error_count>0?'<span class="badge badge-off">'+a.error_count+'次</span>':'—'}</td>
+        <td class="hide-mobile">${a.error_count>0?'<span class="badge badge-off">'+a.error_count+'</span>':'—'}</td>
       </tr>`
     }
     document.getElementById('tbl').innerHTML=r||'<tr><td colspan="5" class="empty">暂无账号</td></tr>'
   }catch(e){
-    document.getElementById('tbl').innerHTML='<tr><td colspan="5" style="color:var(--red)">加载失败：'+e.message+'</td></tr>'
+    document.getElementById('tbl').innerHTML='<tr><td colspan="5" style="color:var(--red)">'+e.message+'</td></tr>'
   }
 }
+async function loadAll(){await loadStats();await loadAccounts()}
+
 async function doImport(){
   const v=document.getElementById('inp').value.trim()
-  if(!v)return toast('请先输入账号信息',0)
+  if(!v)return toast('请输入账号',0)
   const accts=[]
   for(const l of v.split('\\n')){
     const t=l.trim();if(!t)continue
     const p=t.split(':',3)
     if(p.length>=2)accts.push({email:p[0].trim(),password:p[1],name:p[2]||''})
   }
-  if(!accts.length)return toast('格式错误，请用 邮箱:密码 格式',0)
+  if(!accts.length)return toast('格式错误',0)
   try{
     const d=await api('/admin/accounts/import',{
       method:'POST',json:true,
@@ -664,13 +761,19 @@ async function doImport(){
       headers:{'admin-key':'admin'}
     })
     document.getElementById('inp').value=''
-    document.getElementById('msg').textContent='成功导入 '+d.imported+' 个账号'
-    toast('已导入 '+d.imported+' / '+accts.length+' 个',1)
+    document.getElementById('msg').textContent='已导入 '+d.imported+' 个'
+    toast('成功导入 '+d.imported+' 个',1)
     loadAll()
-  }catch(e){toast('导入失败：'+e.message,0)}
+  }catch(e){toast(e.message,0)}
 }
+
+// 回车发送
+document.getElementById('prompt').addEventListener('keydown',e=>{
+  if(e.ctrlKey&&e.key==='Enter')sendMsg()
+})
+
 loadAll()
-setInterval(loadAll,15000)
+setInterval(loadAll,12000)
 </script>
 </body>
 </html>"""
