@@ -1,4 +1,6 @@
 import json
+import logging
+import os
 import time
 import uuid
 from typing import Optional
@@ -8,6 +10,12 @@ from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DS2API Browser Proxy")
 
@@ -19,9 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DS2API_URL = "http://127.0.0.1:5001"
-API_KEYS = ["sk-default", "sk-test123456"]
-ADMIN_KEY = "admin"
+DS2API_URL = os.getenv("DS2API_UPSTREAM_URL", "http://127.0.0.1:5001")
+API_KEYS = os.getenv("DS2API_PROXY_KEYS", os.getenv("DS2API_KEYS", "sk-default")).split(",")
+ADMIN_KEY = os.getenv("DS2API_ADMIN_KEY", "admin")
+# Internal key used to talk to the upstream DS2API instance
+_UPSTREAM_KEY = os.getenv("DS2API_UPSTREAM_KEY", API_KEYS[0] if API_KEYS else "sk-default")
 
 
 class Message(BaseModel):
@@ -48,12 +58,16 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
     return token
 
 
+def _upstream_headers() -> dict:
+    return {"Authorization": f"Bearer {_UPSTREAM_KEY}"}
+
+
 @app.get("/v1/models")
 async def list_models(authorization: str = Header(...)):
     verify_api_key(authorization)
     
     async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{DS2API_URL}/v1/models", headers={"Authorization": f"Bearer sk-test123456"})
+        resp = await client.get(f"{DS2API_URL}/v1/models", headers=_upstream_headers())
         return resp.json()
 
 
@@ -62,7 +76,7 @@ async def get_model(model_id: str, authorization: str = Header(...)):
     verify_api_key(authorization)
     
     async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{DS2API_URL}/v1/models/{model_id}", headers={"Authorization": f"Bearer sk-test123456"})
+        resp = await client.get(f"{DS2API_URL}/v1/models/{model_id}", headers=_upstream_headers())
         return resp.json()
 
 
@@ -84,7 +98,7 @@ async def chat_completions(
                         "POST",
                         f"{DS2API_URL}/v1/chat/completions",
                         json=request.model_dump(),
-                        headers={"Authorization": "Bearer sk-test123456"},
+                        headers=_upstream_headers(),
                         timeout=120,
                     ) as resp:
                         async for line in resp.aiter_lines():
@@ -98,7 +112,7 @@ async def chat_completions(
         resp = await client.post(
             f"{DS2API_URL}/v1/chat/completions",
             json=request.model_dump(),
-            headers={"Authorization": "Bearer sk-test123456"},
+            headers=_upstream_headers(),
             timeout=120,
         )
         return resp.json()
@@ -139,8 +153,8 @@ async def anthropic_messages(request: Request, authorization: str = Header(...))
                     async with stream_client.stream(
                         "POST",
                         f"{DS2API_URL}/v1/chat/completions",
-                        json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}], "stream": True},
-                        headers={"Authorization": "Bearer sk-test123456"},
+                        json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}], "stream": True},
+                        headers=_upstream_headers(),
                         timeout=120,
                     ) as resp:
                         async for line in resp.aiter_lines():
@@ -165,8 +179,8 @@ async def anthropic_messages(request: Request, authorization: str = Header(...))
 
         resp = await client.post(
             f"{DS2API_URL}/v1/chat/completions",
-            json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}], "stream": False},
-            headers={"Authorization": "Bearer sk-test123456"},
+            json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}], "stream": False},
+            headers=_upstream_headers(),
             timeout=120,
         )
         data = resp.json()
@@ -201,8 +215,8 @@ async def gemini_generate(model: str, request: Request, authorization: str = Hea
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{DS2API_URL}/v1/chat/completions",
-            json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}], "stream": False},
-            headers={"Authorization": "Bearer sk-test123456"},
+            json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}], "stream": False},
+            headers=_upstream_headers(),
             timeout=120,
         )
         data = resp.json()
@@ -243,8 +257,8 @@ async def gemini_stream_generate(model: str, request: Request, authorization: st
             async with stream_client.stream(
                 "POST",
                 f"{DS2API_URL}/v1/chat/completions",
-                json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}], "stream": True},
-                headers={"Authorization": "Bearer sk-test123456"},
+                json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}], "stream": True},
+                headers=_upstream_headers(),
                 timeout=120,
             ) as resp:
                 async for line in resp.aiter_lines():
@@ -331,7 +345,7 @@ def main():
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=5002,
+        port=int(os.getenv("DS2API_PROXY_PORT", "5002")),
     )
 
 

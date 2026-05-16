@@ -40,9 +40,11 @@ class Config:
     def from_env(cls) -> "Config":
         accounts = []
         
+        # Format: email:password[:name[:proxy]] separated by semicolons
         account_str = os.getenv("DS2API_ACCOUNTS", "")
         if account_str:
             for acc in account_str.split(";"):
+                # maxsplit=3 yields at most 4 parts: email, password, name, proxy
                 parts = acc.split(":", 3)
                 if len(parts) >= 2:
                     accounts.append(AccountConfig(

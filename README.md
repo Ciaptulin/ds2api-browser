@@ -62,7 +62,7 @@ nohup python main.py > /tmp/ds2api-browser.log 2>&1 &
 
 ## Web 管理界面
 
-访问 `http://localhost:5001/test.html` 可以：
+访问 `http://localhost:5001/` 可以：
 
 - 测试 API 请求
 - 导入账号（支持批量）
@@ -77,7 +77,7 @@ curl http://localhost:5001/v1/chat/completions \
   -H "Authorization: Bearer sk-test123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -89,7 +89,7 @@ curl http://localhost:5001/v1/chat/completions \
   -H "Authorization: Bearer sk-test123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -106,7 +106,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="deepseek-v4-flash",
+    model="deepseek-flash",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)
@@ -116,12 +116,8 @@ print(response.choices[0].message.content)
 
 | 模型 ID | 说明 |
 |---------|------|
-| deepseek-v4-flash | 快速模式（默认） |
-| deepseek-v4-pro | 专家模式 |
-| deepseek-v4-flash-search | 快速 + 搜索 |
-| deepseek-v4-pro-search | 专家 + 搜索 |
-| deepseek-chat | 兼容原版 DS2API |
-| deepseek-reasoner | 推理模式 |
+| deepseek-flash | 快速模式（默认） |
+| deepseek-pro | 专家模式（深度思考） |
 
 ## 健康检查
 
@@ -147,13 +143,15 @@ curl http://localhost:5001/admin/stats -H "admin-key: admin"
 
 ```
 ds2api-browser/
-├── main.py              # FastAPI 服务器
+├── main.py              # FastAPI 服务器（含管理界面）
 ├── deepseek_browser.py  # CloakBrowser 自动化核心
+├── deepseek_api.py      # DeepSeek HTTP API 客户端
 ├── account_manager.py   # 账号池管理
 ├── config.py            # 配置管理
+├── proxy.py             # 多协议代理（Claude/Gemini/Ollama）
 ├── start.py             # 快速启动脚本
 ├── run.py               # 运行入口
-├── test.html            # Web 管理界面
+├── .env.example         # 环境变量模板
 ├── requirements.txt     # 依赖列表
 └── README.md            # 本文档
 ```

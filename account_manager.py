@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 from deepseek_browser import DeepSeekBrowser
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,7 +41,7 @@ class AccountManager:
     async def acquire(self) -> Account:
         async with self._lock:
             for account in self.accounts.values():
-                if not account.in_use and account.error_count < 3:
+                if not account.in_use and account.error_count < 3 and not account.is_muted:
                     account.in_use = True
                     return account
 
@@ -53,7 +56,7 @@ class AccountManager:
 
         async with self._lock:
             for account in self.accounts.values():
-                if not account.in_use and account.error_count < 3:
+                if not account.in_use and account.error_count < 3 and not account.is_muted:
                     account.in_use = True
                     return account
 
@@ -92,7 +95,7 @@ class AccountManager:
                 account.muted_until = account.browser.muted_until()
             return account.browser
         except Exception as e:
-            print(f"Error creating browser: {e}")
+            logger.error("Error creating browser for %s: %s", account.email, e)
             await self.close_browser(account)
             raise
 
@@ -107,15 +110,15 @@ class AccountManager:
         if account.browser:
             try:
                 await account.browser.close()
-            except:
-                pass
+            except Exception as e:
+                logger.debug("Error closing browser for %s: %s", account.email, e)
             account.browser = None
             account.logged_in = False
 
     def get_stats(self) -> Dict:
         total = len(self.accounts)
         in_use = sum(1 for a in self.accounts.values() if a.in_use)
-        available = sum(1 for a in self.accounts.values() if not a.in_use and a.error_count < 3)
+        available = sum(1 for a in self.accounts.values() if not a.in_use and a.error_count < 3 and not a.is_muted)
         logged_in = sum(1 for a in self.accounts.values() if a.logged_in)
         muted = sum(1 for a in self.accounts.values() if a.is_muted)
         accounts_list = [

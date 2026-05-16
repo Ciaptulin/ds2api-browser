@@ -1,12 +1,15 @@
 import asyncio
 import hashlib
 import json
+import logging
 import random
 import time
 import uuid
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Union
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class DeepSeekAPI:
@@ -121,7 +124,9 @@ class DeepSeekAPI:
         while nonce < 10000000:
             test = f"{prefix}{nonce}"
             hash_val = hashlib.sha256(test.encode()).hexdigest()
-            if hash_val.startswith("0" * len(target)):
+            # Compare hash against target lexicographically — this handles
+            # both all-zero targets and mixed targets like "000abc".
+            if hash_val <= target:
                 break
             nonce += 1
         
@@ -138,7 +143,12 @@ class DeepSeekAPI:
         model: str = "deepseek-chat",
         stream: bool = False,
         timeout: int = 120,
-    ) -> str:
+    ) -> Union[str, AsyncGenerator[str, None]]:
+        """Send a message and return a response.
+
+        Returns:
+            str when stream=False, AsyncGenerator[str, None] when stream=True.
+        """
         if not self._token:
             await self.login()
         

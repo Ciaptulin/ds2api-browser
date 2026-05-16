@@ -1,10 +1,17 @@
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
 from pathlib import Path
 from typing import Optional
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -153,6 +160,10 @@ async def chat_completions(
 
         await manager.release(account)
 
+        # Token counts are estimated by word splitting; not exact tokenization
+        prompt_tokens = len(prompt.split())
+        completion_tokens = len(response_text.split())
+
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
@@ -166,14 +177,15 @@ async def chat_completions(
                 }
             ],
             "usage": {
-                "prompt_tokens": len(prompt.split()),
-                "completion_tokens": len(response_text.split()),
-                "total_tokens": len(prompt.split()) + len(response_text.split()),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
             },
         }
 
     except Exception as e:
         await manager.mark_error(account)
+        logger.error("Chat completion error for model=%s: %s", request.model, e)
         raise HTTPException(status_code=503, detail=str(e))
 
 
@@ -186,7 +198,17 @@ async def healthz():
 @app.get("/readyz")
 async def readyz():
     stats = manager.get_stats()
-    return {"status": "ok", "accounts": stats}
+    return {
+        "status": "ok",
+        "accounts": {
+            "total": stats["total"],
+            "in_use": stats["in_use"],
+            "available": stats["available"],
+            "logged_in": stats["logged_in"],
+            "muted": stats["muted"],
+            "queue_size": stats["queue_size"],
+        },
+    }
 
 
 @app.get("/admin/stats")
@@ -234,6 +256,8 @@ async def list_accounts(admin_key: str = Header(...)):
             "name": acc.name,
             "in_use": acc.in_use,
             "logged_in": acc.logged_in,
+            "is_muted": acc.is_muted,
+            "muted_until": acc.muted_until,
             "error_count": acc.error_count,
         })
 
@@ -256,7 +280,7 @@ async def startup():
             proxy=acc.proxy,
         )
 
-    print(f"Loaded {len(config.accounts)} accounts")
+    logger.info("Loaded %d accounts", len(config.accounts))
 
 
 ADMIN_HTML = """<!DOCTYPE html>

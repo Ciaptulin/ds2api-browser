@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import random
 import time
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 from cloakbrowser import launch_persistent_context_async
+
+logger = logging.getLogger(__name__)
 
 
 class DeepSeekBrowser:
@@ -29,6 +32,19 @@ class DeepSeekBrowser:
         self.page = None
         self._logged_in = False
         self._ready = False
+
+    def _mask_email(self) -> str:
+        """Generate a masked version of the email for skip_phrases filtering."""
+        parts = self.email.split("@")
+        if len(parts) == 2:
+            local = parts[0]
+            domain = parts[1]
+            if len(local) > 4:
+                masked = local[:4] + "*" * (len(local) - 4)
+            else:
+                masked = local[0] + "*" * (len(local) - 1)
+            return f"{masked}@{domain}"
+        return self.email
 
     async def start(self):
         self.profile_dir.mkdir(parents=True, exist_ok=True)
@@ -79,7 +95,7 @@ class DeepSeekBrowser:
             self._is_muted = muted
             self._muted_until = until
             if muted:
-                print(f"[mute] {self.email} is muted until {until}")
+                logger.warning("[mute] %s is muted until %s", self.email, until)
         except Exception:
             self._is_muted = False
             self._muted_until = ""
@@ -91,7 +107,7 @@ class DeepSeekBrowser:
         return getattr(self, '_muted_until', "")
 
     async def _auto_login(self):
-        print(f"Logging in as {self.email}...")
+        logger.info("Logging in as %s...", self.email)
 
         try:
             email_input = self.page.locator('input[placeholder*="邮箱"], input[placeholder*="手机"], input[placeholder*="Email"], input[placeholder*="email"], input[type="text"]').first
@@ -102,10 +118,10 @@ class DeepSeekBrowser:
             # Take screenshot to debug
             try:
                 await self.page.screenshot(path=f"/tmp/login_fail_{self.email.replace('@','_at_')}.png")
-                print(f"Screenshot saved to /tmp/login_fail_{self.email.replace('@','_at_')}.png")
+                logger.error("Screenshot saved to /tmp/login_fail_%s.png", self.email.replace('@', '_at_'))
             except Exception:
                 pass
-            print(f"Email input error: {e}")
+            logger.error("Email input error: %s", e)
             raise
 
         try:
@@ -114,7 +130,7 @@ class DeepSeekBrowser:
             await password_input.fill(self.password)
             await asyncio.sleep(0.5)
         except Exception as e:
-            print(f"Password input error: {e}")
+            logger.error("Password input error: %s", e)
             raise
 
         try:
@@ -122,14 +138,14 @@ class DeepSeekBrowser:
             await login_button.click()
             await asyncio.sleep(3)
         except Exception as e:
-            print(f"Login button error: {e}")
+            logger.error("Login button error: %s", e)
             raise
 
         try:
             await self.page.wait_for_selector('textarea', timeout=30000)
             self._logged_in = True
             self._ready = True
-            print("Login successful!")
+            logger.info("Login successful!")
         except Exception:
             raise Exception("Login failed")
 
@@ -137,13 +153,23 @@ class DeepSeekBrowser:
         delay = random.uniform(min_ms, max_ms) / 1000
         await asyncio.sleep(delay)
 
+    def _get_skip_phrases(self) -> list:
+        """Build skip phrases list, dynamically including masked email."""
+        phrases = [
+            '深度思考', '智能搜索', '快速模式', '专家模式',
+            '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天',
+        ]
+        masked = self._mask_email()
+        phrases.append(masked)
+        return phrases
+
     async def new_chat(self):
         try:
             await self.page.goto(self.DEEPSEEK_URL, timeout=30000)
             await asyncio.sleep(2)
             await self.page.wait_for_selector('textarea', timeout=15000)
         except Exception as e:
-            print(f"New chat error: {e}")
+            logger.error("New chat error: %s", e)
             raise
 
     async def delete_chat(self):
@@ -151,25 +177,25 @@ class DeepSeekBrowser:
             # Find the sidebar and active conversation
             chat_list = self.page.locator(
                 'nav, aside, [class*="sidebar"], [class*="Sidebar"], div:has-text("开启新对话")'
-            ).first
+            )
             chat_list_count = await chat_list.count()
             if chat_list_count == 0:
-                print(f"[delete_chat] no sidebar")
+                logger.debug("[delete_chat] no sidebar")
                 return
 
-            active_item = chat_list.locator(
+            active_item = chat_list.first.locator(
                 '[class*="active"], [class*="selected"], [class*="current"]'
             ).first
             active_count = await active_item.count()
             if active_count == 0:
                 # No active item yet (first chat), skip deletion
-                print(f"[delete_chat] no active item, skipping")
+                logger.debug("[delete_chat] no active item, skipping")
                 return
 
             # Get bounding box and click near right edge where "..." should be
             box = await active_item.bounding_box()
             if not box:
-                print(f"[delete_chat] no bbox")
+                logger.debug("[delete_chat] no bbox")
                 return
 
             # Instead of position-based click, find the "..." element in DOM
@@ -210,7 +236,7 @@ class DeepSeekBrowser:
                 }
                 return 'no-icon';
             }""")
-            print(f"[delete_chat] icon click: {click_result}")
+            logger.debug("[delete_chat] icon click: %s", click_result)
             await asyncio.sleep(0.5)
 
             # Search for "删除" or "Delete" anywhere on page
@@ -220,7 +246,7 @@ class DeepSeekBrowser:
             delete_count = await delete_btn.count()
             
             if delete_count == 0:
-                print(f"[delete_chat] no delete option found")
+                logger.debug("[delete_chat] no delete option found")
                 return
 
             await delete_btn.click()
@@ -234,12 +260,12 @@ class DeepSeekBrowser:
             if await confirm_btn.count() > 0:
                 await confirm_btn.click()
                 await asyncio.sleep(1)
-                print(f"[delete_chat] done!")
+                logger.debug("[delete_chat] done!")
             else:
-                print(f"[delete_chat] no confirm btn")
+                logger.debug("[delete_chat] no confirm btn")
                 
         except Exception as e:
-            print(f"[delete_chat] error: {e}")
+            logger.warning("[delete_chat] error: %s", e)
 
     async def switch_model(self, model: str):
         try:
@@ -280,7 +306,7 @@ class DeepSeekBrowser:
 
             return response
         except Exception as e:
-            print(f"Send message error: {e}")
+            logger.error("Send message error: %s", e)
             raise
 
     async def _wait_for_response(self, timeout: int, prompt: str = "") -> str:
@@ -291,7 +317,7 @@ class DeepSeekBrowser:
         last_text = ""
         stable_count = 0
 
-        skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天', 'huan********dja@gmail.com']
+        skip_phrases = self._get_skip_phrases()
 
         while time.time() < deadline:
             try:
@@ -361,7 +387,7 @@ class DeepSeekBrowser:
             last_text = ""
             stable_count = 0
 
-            skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天', 'huan********dja@gmail.com']
+            skip_phrases = self._get_skip_phrases()
 
             await asyncio.sleep(3)
 
@@ -403,14 +429,21 @@ class DeepSeekBrowser:
                             stable_count += 1
 
                         if stable_count >= 3:
-                            return
+                            break
 
                 except Exception:
                     pass
 
                 await asyncio.sleep(0.3)
+
+            # Clean up: delete the chat after streaming is done (#17)
+            try:
+                await self.delete_chat()
+            except Exception as e:
+                logger.warning("[stream_message] delete_chat cleanup error: %s", e)
+
         except Exception as e:
-            print(f"Stream message error: {e}")
+            logger.error("Stream message error: %s", e)
             raise
 
     async def close(self):
