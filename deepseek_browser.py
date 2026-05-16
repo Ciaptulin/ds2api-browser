@@ -132,7 +132,7 @@ class DeepSeekBrowser:
 
     async def switch_model(self, model: str):
         try:
-            if 'reasoner' in model or 'thinking' in model:
+            if 'reasoner' in model or 'thinking' in model or 'pro' in model:
                 thinking_btn = self.page.locator('button:has-text("深度思考"), div:has-text("深度思考")').first
                 if await thinking_btn.count() > 0:
                     await thinking_btn.click()

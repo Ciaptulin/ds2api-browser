@@ -63,10 +63,8 @@ async def list_models(authorization: str = Header(...)):
 
     return {
         "data": [
-            {"id": "deepseek-chat", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "deepseek-reasoner", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "deepseek-v4-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "deepseek-v4-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
+            {"id": "deepseek-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
+            {"id": "deepseek-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
         ],
         "object": "list",
     }
@@ -77,10 +75,8 @@ async def get_model(model_id: str, authorization: str = Header(...)):
     verify_api_key(authorization)
 
     models = {
-        "deepseek-chat": {"id": "deepseek-chat", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-        "deepseek-reasoner": {"id": "deepseek-reasoner", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-        "deepseek-v4-flash": {"id": "deepseek-v4-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-        "deepseek-v4-pro": {"id": "deepseek-v4-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
+        "deepseek-flash": {"id": "deepseek-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
+        "deepseek-pro": {"id": "deepseek-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
     }
 
     if model_id in models:
@@ -101,9 +97,7 @@ async def chat_completions(
 
     prompt = request.messages[-1].content
 
-    # 模型别名: chat→flash, reasoner→pro
-    MODEL_ALIASES = {"deepseek-chat": "deepseek-v4-flash", "deepseek-reasoner": "deepseek-v4-pro"}
-    model = MODEL_ALIASES.get(request.model, request.model)
+    model = request.model
 
     account = await manager.acquire()
 
@@ -374,10 +368,8 @@ textarea::placeholder{color:var(--dim)}
     <div class="panel-body">
       <div class="row">
         <select id="model" style="flex:1">
-          <option value="deepseek-v4-flash">deepseek-v4-flash</option>
-          <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-          <option value="deepseek-chat">deepseek-chat</option>
-          <option value="deepseek-reasoner">deepseek-reasoner</option>
+          <option value="deepseek-flash">deepseek-flash</option>
+          <option value="deepseek-pro">deepseek-pro</option>
         </select>
         <label style="font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px;white-space:nowrap">
           <input type="checkbox" id="stream" checked> 流式
