@@ -41,7 +41,7 @@ class Config:
         account_str = os.getenv("DS2API_ACCOUNTS", "")
         if account_str:
             for acc in account_str.split(";"):
-                parts = acc.split(":")
+                parts = acc.split(":", 3)
                 if len(parts) >= 2:
                     accounts.append(AccountConfig(
                         email=parts[0],

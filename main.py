@@ -1,8 +1,15 @@
 import asyncio
 import json
+import os
 import time
 import uuid
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# 自动加载项目目录下的 .env
+load_dotenv(Path(__file__).parent / ".env")
 
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +30,7 @@ app.add_middleware(
 )
 
 config: Config = load_config()
-manager = AccountManager(max_inflight=1)
+manager = AccountManager(max_inflight=2)
 
 
 class Message(BaseModel):
@@ -449,6 +456,12 @@ async def list_accounts(admin_key: str = Header(...)):
     return {"accounts": accounts, "total": len(accounts)}
 
 
+@app.get("/")
+async def admin_panel():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=ADMIN_HTML)
+
+
 @app.on_event("startup")
 async def startup():
     for acc in config.accounts:
@@ -460,6 +473,207 @@ async def startup():
         )
 
     print(f"Loaded {len(config.accounts)} accounts")
+
+
+ADMIN_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DS2API · 终端</title>
+<style>
+:root{--bg:#080c12;--panel:#0f1620;--border:#1a2738;--text:#a8c0d8;--dim:#4a6078;--accent:#64d8ff;--green:#4ade80;--red:#f87171;--amber:#fbbf24}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'JetBrains Mono','Sarasa Mono SC','Source Code Pro','Cascadia Code',monospace;background:var(--bg);color:var(--text);min-height:100vh;font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased}
+body::before{content:'';position:fixed;inset:0;background:
+  radial-gradient(ellipse 80% 50% at 50% -20%,rgba(100,216,255,.04),transparent),
+  linear-gradient(180deg,transparent 0%,rgba(100,216,255,.01) 50%,transparent 100%);
+  pointer-events:none;z-index:0}
+
+.topbar{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:12px}
+.topbar .dot{width:7px;height:7px;background:var(--green);box-shadow:0 0 6px var(--green);animation:glow 2s ease-in-out infinite}
+.topbar .title{font-weight:800;font-size:14px;color:var(--accent);letter-spacing:2px}
+.topbar .tag{font-size:10px;color:var(--dim);letter-spacing:1px;border:1px solid var(--border);padding:3px 8px}
+@keyframes glow{0%,100%{box-shadow:0 0 4px var(--green)}50%{box-shadow:0 0 14px var(--green)}}
+
+.main{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:28px 16px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:28px}
+@media(max-width:600px){.grid{grid-template-columns:repeat(2,1fr);gap:8px}}
+
+.stat{background:var(--panel);border:1px solid var(--border);padding:18px 16px;position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(100,216,255,.03) 0%,transparent 60%);pointer-events:none}
+.stat .num{font-size:42px;font-weight:800;color:var(--accent);line-height:1}
+.stat .label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:2px;margin-top:4px}
+
+.card{background:var(--panel);border:1px solid var(--border);margin-bottom:16px}
+.card-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(100,216,255,.02)}
+.card-head h2{font-size:11px;color:var(--accent);letter-spacing:2px;font-weight:800}
+.card-head .prompt{color:var(--dim);font-weight:800;margin-right:6px}
+.card-body{padding:16px 18px}
+
+table{width:100%;border-collapse:collapse}
+thead{border-bottom:2px solid var(--border)}
+th{padding:10px 8px;text-align:left;color:var(--dim);font-weight:700;font-size:10px;letter-spacing:1px;white-space:nowrap}
+td{padding:9px 8px;border-bottom:1px solid rgba(26,39,56,.6);word-break:break-all;font-size:12px}
+tr:hover td{background:rgba(100,216,255,.02)}
+@media(max-width:600px){th{font-size:9px;padding:8px 4px}td{font-size:11px;padding:8px 4px}}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap}
+.badge::before{content:'';width:5px;height:5px;display:inline-block}
+.badge-on{color:var(--green);border:1px solid rgba(74,222,128,.35)}.badge-on::before{background:var(--green)}
+.badge-off{color:var(--red);border:1px solid rgba(248,113,113,.3)}.badge-off::before{background:var(--red)}
+.badge-idle{color:var(--dim);border:1px solid var(--border)}.badge-idle::before{background:var(--dim)}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1px;transition:all .15s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(100,216,255,.04)}
+.btn-accent{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:800}
+.btn-accent:hover{background:transparent;color:var(--accent)}
+.btn-sm{padding:6px 12px;font-size:10px}
+@media(max-width:600px){.btn{padding:7px 12px;font-size:10px}}
+
+textarea{width:100%;background:var(--bg);border:1px solid var(--border);padding:12px;color:var(--text);font-family:inherit;font-size:12px;line-height:1.7;min-height:90px;resize:vertical}
+textarea:focus{outline:none;border-color:var(--accent);box-shadow:inset 0 0 0 1px rgba(100,216,255,.1)}
+textarea::placeholder{color:var(--dim)}
+
+.help{font-size:10px;color:var(--dim);margin-bottom:10px;letter-spacing:.5px;opacity:.7}
+
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.spacer{flex:1}
+
+.toast{position:fixed;top:24px;right:24px;z-index:99;padding:12px 20px;font-size:12px;font-weight:700;letter-spacing:.5px;animation:slide .25s;backdrop-filter:blur(8px)}
+.toast-ok{background:rgba(74,222,128,.12);color:var(--green);border:1px solid rgba(74,222,128,.25)}
+.toast-err{background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.25)}
+@keyframes slide{from{transform:translateY(-10px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+.empty{color:var(--dim);padding:32px 0;text-align:center;font-size:12px;letter-spacing:1px}
+.hide-mobile{display:table-cell}
+@media(max-width:600px){.hide-mobile{display:none}}
+
+.pulse{animation:flicker 3s ease-in-out infinite}
+@keyframes flicker{0%,100%{opacity:1}50%{opacity:.5}}
+
+.ellipsis{max-width:180px;overflow:hidden;text-overflow:ellipsis;display:block}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="dot"></div>
+  <span class="title">DS2API</span>
+  <div class="spacer" style="flex:1"></div>
+  <span class="tag">▸ 浏览器模式</span>
+</div>
+
+<div class="main">
+  <!-- 统计卡片 -->
+  <div class="grid" id="stats">
+    <div class="stat"><div class="num">—</div><div class="label">账号总数</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">使用中</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">可用</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">已登录</div></div>
+    <div class="stat"><div class="num">—</div><div class="label">排队中</div></div>
+  </div>
+
+  <!-- 账号列表 -->
+  <div class="card">
+    <div class="card-head">
+      <h2><span class="prompt">&gt;</span>账号列表</h2>
+      <button class="btn btn-sm" onclick="loadAll()">刷新</button>
+    </div>
+    <div class="card-body">
+      <table>
+        <thead><tr><th>邮箱</th><th class="hide-mobile">备注</th><th>登录</th><th>状态</th><th class="hide-mobile">错误</th></tr></thead>
+        <tbody id="tbl"><tr><td colspan="5" class="empty">正在加载…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 导入账号 -->
+  <div class="card">
+    <div class="card-head">
+      <h2><span class="prompt">&gt;</span>导入账号</h2>
+    </div>
+    <div class="card-body">
+      <div class="help">格式：邮箱:密码 ，每行一个账号</div>
+      <textarea id="inp" placeholder="user@gmail.com:password"></textarea>
+      <div class="bar">
+        <button class="btn btn-accent" onclick="doImport()">▸ 导入</button>
+        <span id="msg" style="font-size:11px;color:var(--dim)"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const H=location.origin
+function toast(m,ok){
+  const e=document.createElement('div')
+  e.className='toast toast-'+(ok?'ok':'err')
+  e.textContent=m
+  document.body.appendChild(e)
+  setTimeout(()=>e.remove(),2800)
+}
+async function api(p,o={}){
+  const hd={};if(o.json)hd['Content-Type']='application/json'
+  Object.assign(hd,o.headers||{})
+  const r=await fetch(H+p,{headers:hd,method:o.method||'GET',body:o.body})
+  if(!r.ok){const e=await r.text();throw new Error(e||r.status)}
+  return r.json()
+}
+async function loadAll(){
+  try{
+    const s=await api('/readyz')
+    document.getElementById('stats').innerHTML=
+      `<div class="stat"><div class="num">${s.accounts.total}</div><div class="label">账号总数</div></div>
+       <div class="stat"><div class="num">${s.accounts.in_use}</div><div class="label">使用中</div></div>
+       <div class="stat"><div class="num">${s.accounts.available}</div><div class="label">可用</div></div>
+       <div class="stat"><div class="num">${s.accounts.logged_in}</div><div class="label">已登录</div></div>
+       <div class="stat"><div class="num">${s.accounts.queue_size}</div><div class="label">排队中</div></div>`
+  }catch(e){}
+  try{
+    const d=await api('/admin/accounts',{headers:{'admin-key':'admin'}})
+    let r=''
+    for(const a of d.accounts){
+      r+=`<tr>
+        <td><span class="ellipsis">${a.email}</span></td>
+        <td class="hide-mobile">${a.name||'—'}</td>
+        <td><span class="badge ${a.logged_in?'badge-on':'badge-off'}">${a.logged_in?'已登录':'未登录'}</span></td>
+        <td><span class="badge ${a.in_use?'badge-on':'badge-idle'}">${a.in_use?'使用中':'空闲'}</span></td>
+        <td class="hide-mobile">${a.error_count>0?'<span class="badge badge-off">'+a.error_count+'次</span>':'—'}</td>
+      </tr>`
+    }
+    document.getElementById('tbl').innerHTML=r||'<tr><td colspan="5" class="empty">暂无账号</td></tr>'
+  }catch(e){
+    document.getElementById('tbl').innerHTML='<tr><td colspan="5" style="color:var(--red)">加载失败：'+e.message+'</td></tr>'
+  }
+}
+async function doImport(){
+  const v=document.getElementById('inp').value.trim()
+  if(!v)return toast('请先输入账号信息',0)
+  const accts=[]
+  for(const l of v.split('\\n')){
+    const t=l.trim();if(!t)continue
+    const p=t.split(':',3)
+    if(p.length>=2)accts.push({email:p[0].trim(),password:p[1],name:p[2]||''})
+  }
+  if(!accts.length)return toast('格式错误，请用 邮箱:密码 格式',0)
+  try{
+    const d=await api('/admin/accounts/import',{
+      method:'POST',json:true,
+      body:JSON.stringify({accounts:accts}),
+      headers:{'admin-key':'admin'}
+    })
+    document.getElementById('inp').value=''
+    document.getElementById('msg').textContent='成功导入 '+d.imported+' 个账号'
+    toast('已导入 '+d.imported+' / '+accts.length+' 个',1)
+    loadAll()
+  }catch(e){toast('导入失败：'+e.message,0)}
+}
+loadAll()
+setInterval(loadAll,15000)
+</script>
+</body>
+</html>"""
 
 
 def main():
