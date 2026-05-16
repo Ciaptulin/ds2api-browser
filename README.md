@@ -1,25 +1,37 @@
 # DS2API Browser
 
-基于 CloakBrowser/Playwright 的 DeepSeek API 代理服务。
+基于 CloakBrowser 的 DeepSeek API 代理服务。
+
+## 为什么选择 CloakBrowser？
+
+CloakBrowser 是专为反检测设计的浏览器，通过 30/30 机器人检测测试。使用 CloakBrowser 可以：
+
+- **完全隐藏自动化痕迹** - 无法被 DeepSeek 检测
+- **避免账号封禁** - 模拟真实用户行为
+- **通过 AWS WAF 验证** - 自动处理 CloudFront Token
 
 ## 特性
 
-- **浏览器自动化** - 使用真实浏览器访问 DeepSeek，无法被检测
+- **浏览器自动化** - 使用 CloakBrowser 访问 DeepSeek，无法被检测
 - **OpenAI 兼容 API** - 支持 `/v1/chat/completions` 接口
+- **Claude/Gemini/Ollama 兼容** - 多协议支持
 - **流式响应** - 支持 SSE 流式输出
 - **账号池管理** - 支持多账号轮询
-- **人类行为模拟** - 模拟真实用户操作
+- **Web 管理界面** - 在线导入账号
 
 ## 安装
 
 ```bash
-cd /home/huanx/code/ds2api-browser
+# 克隆仓库
+git clone https://github.com/huanxherta/ds2api-browser.git
+cd ds2api-browser
+
+# 创建虚拟环境
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
 
-# 安装 Playwright 浏览器（如果不用 CloakBrowser）
-playwright install chromium
+# 安装依赖
+pip install -r requirements.txt
 ```
 
 ## 使用
@@ -32,7 +44,6 @@ export DS2API_KEYS="sk-key1,sk-key2"
 export DS2API_ADMIN_KEY="your-admin-key"
 export DS2API_PORT="5001"
 export DS2API_HEADLESS="true"
-export DS2API_HUMANIZE="true"
 
 python main.py
 ```
@@ -49,6 +60,14 @@ python start.py
 nohup python main.py > /tmp/ds2api-browser.log 2>&1 &
 ```
 
+## Web 管理界面
+
+访问 `http://localhost:5001/test.html` 可以：
+
+- 测试 API 请求
+- 导入账号（支持批量）
+- 查看账号状态
+
 ## API 使用
 
 ### 聊天补全
@@ -58,7 +77,7 @@ curl http://localhost:5001/v1/chat/completions \
   -H "Authorization: Bearer sk-test123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -70,7 +89,7 @@ curl http://localhost:5001/v1/chat/completions \
   -H "Authorization: Bearer sk-test123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -87,11 +106,22 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="deepseek-chat",
+    model="deepseek-v4-flash",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)
 ```
+
+## 支持的模型
+
+| 模型 ID | 说明 |
+|---------|------|
+| deepseek-v4-flash | 快速模式（默认） |
+| deepseek-v4-pro | 专家模式 |
+| deepseek-v4-flash-search | 快速 + 搜索 |
+| deepseek-v4-pro-search | 专家 + 搜索 |
+| deepseek-chat | 兼容原版 DS2API |
+| deepseek-reasoner | 推理模式 |
 
 ## 健康检查
 
@@ -106,19 +136,9 @@ curl http://localhost:5001/readyz
 curl http://localhost:5001/admin/stats -H "admin-key: admin"
 ```
 
-## 与原版 DS2API 的区别
-
-| 特性 | 原版 DS2API | DS2API Browser |
-|------|-------------|----------------|
-| 实现方式 | HTTP 客户端 | 浏览器自动化 |
-| 指纹检测 | 容易被检测 | 无法被检测 |
-| 账号封禁 | 高风险 | 低风险 |
-| 性能 | 快 | 较慢 |
-| 资源占用 | 低 | 高 |
-
 ## 注意事项
 
-1. **首次运行** - Playwright/CloakBrowser 会下载浏览器二进制文件（~200MB）
+1. **必须使用 CloakBrowser** - 其他浏览器（如原生 Playwright）会被检测
 2. **资源占用** - 每个浏览器实例占用约 200-500MB 内存
 3. **性能** - 浏览器自动化比直接 HTTP 慢，但更安全
 4. **账号安全** - 建议使用小号测试，不要用主账号
@@ -128,11 +148,12 @@ curl http://localhost:5001/admin/stats -H "admin-key: admin"
 ```
 ds2api-browser/
 ├── main.py              # FastAPI 服务器
-├── deepseek_browser.py  # 浏览器自动化核心
+├── deepseek_browser.py  # CloakBrowser 自动化核心
 ├── account_manager.py   # 账号池管理
 ├── config.py            # 配置管理
 ├── start.py             # 快速启动脚本
 ├── run.py               # 运行入口
+├── test.html            # Web 管理界面
 ├── requirements.txt     # 依赖列表
 └── README.md            # 本文档
 ```
