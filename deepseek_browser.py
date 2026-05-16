@@ -1,19 +1,14 @@
 import asyncio
 import random
 import time
-import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-import httpx
 from cloakbrowser import launch_persistent_context_async
 
 
 class DeepSeekBrowser:
     DEEPSEEK_URL = "https://chat.deepseek.com"
-    LOGIN_URL = "https://chat.deepseek.com/api/v0/users/login"
-    CREATE_SESSION_URL = "https://chat.deepseek.com/api/v0/chat_session/create"
-    COMPLETION_URL = "https://chat.deepseek.com/api/v0/chat/completion"
 
     def __init__(
         self,
@@ -34,14 +29,9 @@ class DeepSeekBrowser:
         self.page = None
         self._logged_in = False
         self._ready = False
-        self._token = None
-        self._session_id = None
 
     async def start(self):
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-
-        # 先用 API 登录获取 token
-        await self._login_via_api()
 
         self.context = await launch_persistent_context_async(
             user_data_dir=str(self.profile_dir),
@@ -53,67 +43,95 @@ class DeepSeekBrowser:
         )
 
         self.page = await self.context.new_page()
-        
-        # 设置 token cookie
-        if self._token:
-            await self.context.add_cookies([{
-                "name": "token",
-                "value": self._token,
-                "domain": ".deepseek.com",
-                "path": "/",
-            }])
-
         await self.page.goto(self.DEEPSEEK_URL, timeout=60000)
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)
 
-        # 检查是否登录成功
-        if '/sign_in' in self.page.url:
-            # 如果 cookie 方式失败，尝试通过 JS 注入 token
-            await self.page.evaluate(f"localStorage.setItem('token', '{self._token}')")
-            await self.page.reload()
+        await self._check_login_state()
+
+    async def _check_login_state(self):
+        current_url = self.page.url
+
+        if '/sign_in' in current_url:
+            await self._auto_login()
+        else:
+            try:
+                await self.page.wait_for_selector('textarea', timeout=10000)
+                self._logged_in = True
+                self._ready = True
+            except Exception:
+                await self._auto_login()
+
+        # Check if account is muted after login
+        if self._logged_in:
+            await self._check_mute()
+
+    async def _check_mute(self):
+        """Check if account is muted and extract mute expiry."""
+        try:
+            muted, until = await self.page.evaluate("""() => {
+                const text = document.body.innerText || '';
+                // Match: 禁言至 YYYY年M月D日 HH:MM or 禁言至 YYYY-MM-DD HH:MM
+                const match = text.match(/禁言至\\s*(\\d{4}[-年]\\d{1,2}[-月]\\d{1,2}[日]?\\s*\\d{1,2}:\\d{2})/);
+                if (match) return [true, match[1]];
+                if (text.includes('禁言')) return [true, ''];
+                return [false, ''];
+            }""")
+            self._is_muted = muted
+            self._muted_until = until
+            if muted:
+                print(f"[mute] {self.email} is muted until {until}")
+        except Exception:
+            self._is_muted = False
+            self._muted_until = ""
+
+    def is_muted(self) -> bool:
+        return getattr(self, '_is_muted', False)
+
+    def muted_until(self) -> str:
+        return getattr(self, '_muted_until', "")
+
+    async def _auto_login(self):
+        print(f"Logging in as {self.email}...")
+
+        try:
+            email_input = self.page.locator('input[placeholder*="邮箱"], input[placeholder*="手机"], input[placeholder*="Email"], input[placeholder*="email"], input[type="text"]').first
+            await email_input.wait_for(state="visible", timeout=10000)
+            await email_input.fill(self.email)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            # Take screenshot to debug
+            try:
+                await self.page.screenshot(path=f"/tmp/login_fail_{self.email.replace('@','_at_')}.png")
+                print(f"Screenshot saved to /tmp/login_fail_{self.email.replace('@','_at_')}.png")
+            except Exception:
+                pass
+            print(f"Email input error: {e}")
+            raise
+
+        try:
+            password_input = self.page.locator('input[type="password"]').first
+            await password_input.wait_for(state="visible", timeout=5000)
+            await password_input.fill(self.password)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"Password input error: {e}")
+            raise
+
+        try:
+            login_button = self.page.locator('button:has-text("登录")').first
+            await login_button.click()
             await asyncio.sleep(3)
+        except Exception as e:
+            print(f"Login button error: {e}")
+            raise
 
-        if '/sign_in' not in self.page.url:
+        try:
+            await self.page.wait_for_selector('textarea', timeout=30000)
             self._logged_in = True
             self._ready = True
-        else:
-            raise Exception("Login failed - still on sign_in page")
-
-    async def _login_via_api(self):
-        """通过 DeepSeek API 登录获取 token"""
-        async with httpx.AsyncClient() as client:
-            device_id = str(uuid.uuid4())
-            payload = {
-                "email": self.email,
-                "password": self.password,
-                "device_id": device_id,
-                "os": "android",
-            }
-            
-            headers = {
-                "Content-Type": "application/json",
-                "User-Agent": "DeepSeek-Android/2.0",
-            }
-            
-            resp = await client.post(self.LOGIN_URL, json=payload, headers=headers, timeout=30)
-            data = resp.json()
-            
-            code = data.get("code", -1)
-            if code != 0:
-                msg = data.get("msg", "Unknown error")
-                raise Exception(f"API login failed: {msg}")
-            
-            biz_data = data.get("data", {})
-            biz_code = biz_data.get("biz_code", -1)
-            if biz_code != 0:
-                biz_msg = biz_data.get("biz_msg", "Unknown error")
-                raise Exception(f"API login failed: {biz_msg}")
-            
-            user = biz_data.get("biz_data", {}).get("user", {})
-            self._token = user.get("token", "")
-            
-            if not self._token:
-                raise Exception("No token received from API")
+            print("Login successful!")
+        except Exception:
+            raise Exception("Login failed")
 
     async def _human_delay(self, min_ms: int = 300, max_ms: int = 1500):
         delay = random.uniform(min_ms, max_ms) / 1000
@@ -130,26 +148,102 @@ class DeepSeekBrowser:
 
     async def delete_chat(self):
         try:
-            more_btn = self.page.locator('button:has-text("更多"), .ds-icon-button:has-text("...")').first
-            if await more_btn.count() > 0:
-                await more_btn.click()
-                await asyncio.sleep(0.5)
+            # Find the sidebar and active conversation
+            chat_list = self.page.locator(
+                'nav, aside, [class*="sidebar"], [class*="Sidebar"], div:has-text("开启新对话")'
+            ).first
+            chat_list_count = await chat_list.count()
+            if chat_list_count == 0:
+                print(f"[delete_chat] no sidebar")
+                return
 
-                delete_btn = self.page.locator('button:has-text("删除"), div:has-text("删除对话")').first
-                if await delete_btn.count() > 0:
-                    await delete_btn.click()
-                    await asyncio.sleep(0.5)
+            active_item = chat_list.locator(
+                '[class*="active"], [class*="selected"], [class*="current"]'
+            ).first
+            active_count = await active_item.count()
+            if active_count == 0:
+                # No active item yet (first chat), skip deletion
+                print(f"[delete_chat] no active item, skipping")
+                return
 
-                    confirm_btn = self.page.locator('button:has-text("确认"), button:has-text("删除")').last
-                    if await confirm_btn.count() > 0:
-                        await confirm_btn.click()
-                        await asyncio.sleep(1)
-        except Exception:
-            pass
+            # Get bounding box and click near right edge where "..." should be
+            box = await active_item.bounding_box()
+            if not box:
+                print(f"[delete_chat] no bbox")
+                return
+
+            # Instead of position-based click, find the "..." element in DOM
+            click_result = await self.page.evaluate("""() => {
+                // Find the active/highlighted conversation item
+                const active = document.querySelector('[class*="active"], [class*="selected"]');
+                if (!active) return 'no-active';
+                
+                // Walk down to find a clickable child that looks like "..."
+                // The "..." is often a button or div with no text (SVG only)
+                const walk = (node, depth) => {
+                    if (depth > 10) return null;
+                    for (const child of node.children || []) {
+                        const tag = child.tagName;
+                        const cls = (child.className || '').toString();
+                        // Look for small icon-like elements
+                        if ((tag === 'BUTTON' || tag === 'svg' || cls.includes('icon') || cls.includes('more') || cls.includes('menu') || cls.includes('action')) && 
+                            child.offsetWidth < 40 && child.offsetWidth > 0) {
+                            return child;
+                        }
+                        const found = walk(child, depth + 1);
+                        if (found) return found;
+                    }
+                    return null;
+                };
+                
+                const icon = walk(active, 0);
+                if (icon) {
+                    icon.click();
+                    return 'clicked:' + icon.tagName + ':' + (icon.className || '').substring(0, 40);
+                }
+                
+                // Fallback: find any button/svg in active item
+                const btn = active.querySelector('button, [role="button"]');
+                if (btn) {
+                    btn.click();
+                    return 'fallback:' + btn.tagName;
+                }
+                return 'no-icon';
+            }""")
+            print(f"[delete_chat] icon click: {click_result}")
+            await asyncio.sleep(0.5)
+
+            # Search for "删除" or "Delete" anywhere on page
+            delete_btn = self.page.locator(
+                ':has-text("删除"), :has-text("Delete")'
+            ).first
+            delete_count = await delete_btn.count()
+            
+            if delete_count == 0:
+                print(f"[delete_chat] no delete option found")
+                return
+
+            await delete_btn.click()
+            await asyncio.sleep(0.5)
+
+            # Confirm
+            confirm_btn = self.page.locator(
+                'button:has-text("确认"), button:has-text("删除"), '
+                'button:has-text("Confirm"), button:has-text("Delete")'
+            ).last
+            if await confirm_btn.count() > 0:
+                await confirm_btn.click()
+                await asyncio.sleep(1)
+                print(f"[delete_chat] done!")
+            else:
+                print(f"[delete_chat] no confirm btn")
+                
+        except Exception as e:
+            print(f"[delete_chat] error: {e}")
 
     async def switch_model(self, model: str):
         try:
-            if 'reasoner' in model or 'thinking' in model:
+            if 'reasoner' in model or 'thinking' in model or 'pro' in model:
                 thinking_btn = self.page.locator('button:has-text("深度思考"), div:has-text("深度思考")').first
                 if await thinking_btn.count() > 0:
                     await thinking_btn.click()
@@ -197,37 +291,35 @@ class DeepSeekBrowser:
         last_text = ""
         stable_count = 0
 
-        skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话']
+        skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天', 'huan********dja@gmail.com']
 
         while time.time() < deadline:
             try:
-                try:
-                    response_elements = await self.page.query_selector_all('.ds-markdown--block')
-                    if response_elements:
-                        last_response = response_elements[-1]
-                        current_text = await last_response.inner_text()
-                        current_text = current_text.strip()
-                    else:
-                        main_content = await self.page.query_selector('main, .chat-container, [class*="chat"]')
-                        if main_content:
-                            current_text = await main_content.inner_text()
-                        else:
-                            current_text = await self.page.inner_text('body')
-                except Exception:
-                    current_text = await self.page.inner_text('body')
+                text = await self.page.inner_text('body')
 
-                lines = current_text.split('\n')
-                filtered_lines = []
+                lines = text.split('\n')
+                response_started = False
+                response_text = []
+
                 for line in lines:
                     line = line.strip()
                     if not line:
                         continue
+
+                    if line == '内容由 AI 生成，请仔细甄别':
+                        break
+
                     if any(phrase in line for phrase in skip_phrases):
                         continue
-                    filtered_lines.append(line)
 
-                if filtered_lines:
-                    current_text = '\n'.join(filtered_lines)
+                    if response_started:
+                        response_text.append(line)
+
+                    if prompt and prompt in line:
+                        response_started = True
+
+                if response_text:
+                    current_text = '\n'.join(response_text)
 
                     if current_text != last_text:
                         last_text = current_text
@@ -269,39 +361,37 @@ class DeepSeekBrowser:
             last_text = ""
             stable_count = 0
 
-            skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话']
+            skip_phrases = ['深度思考', '智能搜索', '快速模式', '专家模式', '内容由 AI 生成', '开启新对话', '暂无历史对话', '今天', 'huan********dja@gmail.com']
 
             await asyncio.sleep(3)
 
             while time.time() < deadline:
                 try:
-                    try:
-                        response_elements = await self.page.query_selector_all('.ds-markdown--block')
-                        if response_elements:
-                            last_response = response_elements[-1]
-                            current_text = await last_response.inner_text()
-                            current_text = current_text.strip()
-                        else:
-                            main_content = await self.page.query_selector('main, .chat-container, [class*="chat"]')
-                            if main_content:
-                                current_text = await main_content.inner_text()
-                            else:
-                                current_text = await self.page.inner_text('body')
-                    except Exception:
-                        current_text = await self.page.inner_text('body')
+                    text = await self.page.inner_text('body')
 
-                    lines = current_text.split('\n')
-                    filtered_lines = []
+                    lines = text.split('\n')
+                    response_started = False
+                    response_text = []
+
                     for line in lines:
                         line = line.strip()
                         if not line:
                             continue
+
+                        if line == '内容由 AI 生成，请仔细甄别':
+                            break
+
                         if any(phrase in line for phrase in skip_phrases):
                             continue
-                        filtered_lines.append(line)
 
-                    if filtered_lines:
-                        current_text = '\n'.join(filtered_lines)
+                        if response_started:
+                            response_text.append(line)
+
+                        if prompt and prompt in line:
+                            response_started = True
+
+                    if response_text:
+                        current_text = '\n'.join(response_text)
 
                         if current_text != last_text:
                             new_chunk = current_text[len(last_text):]

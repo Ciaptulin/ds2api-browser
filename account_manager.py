@@ -3,7 +3,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
-from deepseek_api import DeepSeekAPI
+from deepseek_browser import DeepSeekBrowser
 
 
 @dataclass
@@ -12,18 +12,19 @@ class Account:
     password: str
     name: str = ""
     proxy: Optional[str] = None
-    api: Optional[DeepSeekAPI] = field(default=None, repr=False)
-    in_use_count: int = 0
-    max_concurrent: int = 3
+    browser: Optional[DeepSeekBrowser] = field(default=None, repr=False)
+    in_use: bool = False
     error_count: int = 0
     logged_in: bool = False
+    is_muted: bool = False
+    muted_until: str = ""
 
 
 class AccountManager:
-    def __init__(self, max_concurrent_per_account: int = 3):
+    def __init__(self, max_inflight: int = 1):
         self.accounts: Dict[str, Account] = {}
         self.queue: deque = deque()
-        self.max_concurrent_per_account = max_concurrent_per_account
+        self.max_inflight = max_inflight
         self._lock = asyncio.Lock()
 
     def add_account(self, email: str, password: str, name: str = "", proxy: Optional[str] = None):
@@ -32,14 +33,13 @@ class AccountManager:
             password=password,
             name=name,
             proxy=proxy,
-            max_concurrent=self.max_concurrent_per_account,
         )
 
     async def acquire(self) -> Account:
         async with self._lock:
             for account in self.accounts.values():
-                if account.in_use_count < account.max_concurrent and account.error_count < 3:
-                    account.in_use_count += 1
+                if not account.in_use and account.error_count < 3:
+                    account.in_use = True
                     return account
 
         return await self._wait_for_account()
@@ -53,15 +53,15 @@ class AccountManager:
 
         async with self._lock:
             for account in self.accounts.values():
-                if account.in_use_count < account.max_concurrent and account.error_count < 3:
-                    account.in_use_count += 1
+                if not account.in_use and account.error_count < 3:
+                    account.in_use = True
                     return account
 
         raise RuntimeError("No account available")
 
     async def release(self, account: Account):
         async with self._lock:
-            account.in_use_count = max(0, account.in_use_count - 1)
+            account.in_use = False
             if self.queue:
                 event = self.queue.popleft()
                 event.set()
@@ -69,53 +69,73 @@ class AccountManager:
     async def mark_error(self, account: Account):
         async with self._lock:
             account.error_count += 1
-            account.in_use_count = max(0, account.in_use_count - 1)
+            account.in_use = False
             if self.queue:
                 event = self.queue.popleft()
                 event.set()
 
-    async def get_api(self, account: Account) -> DeepSeekAPI:
+    async def get_or_create_browser(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
         try:
-            if account.api is None:
-                account.api = DeepSeekAPI(
+            if account.browser is None:
+                account.browser = DeepSeekBrowser(
                     email=account.email,
                     password=account.password,
+                    profile_dir="./profiles",
+                    headless=headless,
+                    humanize=True,
                     proxy=account.proxy,
                 )
-                await account.api.login()
+                await account.browser.start()
                 account.logged_in = True
-            return account.api
+                # Check mute status
+                account.is_muted = account.browser.is_muted()
+                account.muted_until = account.browser.muted_until()
+            return account.browser
         except Exception as e:
-            print(f"Error creating API: {e}")
-            await self.close_api(account)
+            print(f"Error creating browser: {e}")
+            await self.close_browser(account)
             raise
 
-    async def get_api_with_retry(self, account: Account) -> DeepSeekAPI:
+    async def get_or_create_browser_with_retry(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
         try:
-            return await self.get_api(account)
+            return await self.get_or_create_browser(account, headless)
         except Exception:
-            await self.close_api(account)
-            return await self.get_api(account)
+            await self.close_browser(account)
+            return await self.get_or_create_browser(account, headless)
 
-    async def close_api(self, account: Account):
-        if account.api:
+    async def close_browser(self, account: Account):
+        if account.browser:
             try:
-                await account.api.close()
+                await account.browser.close()
             except:
                 pass
-            account.api = None
+            account.browser = None
             account.logged_in = False
 
     def get_stats(self) -> Dict:
         total = len(self.accounts)
-        in_use = sum(a.in_use_count for a in self.accounts.values())
-        available = sum(1 for a in self.accounts.values() if a.in_use_count < a.max_concurrent and a.error_count < 3)
+        in_use = sum(1 for a in self.accounts.values() if a.in_use)
+        available = sum(1 for a in self.accounts.values() if not a.in_use and a.error_count < 3)
         logged_in = sum(1 for a in self.accounts.values() if a.logged_in)
+        muted = sum(1 for a in self.accounts.values() if a.is_muted)
+        accounts_list = [
+            {
+                "email": a.email,
+                "name": a.name,
+                "in_use": a.in_use,
+                "logged_in": a.logged_in,
+                "is_muted": a.is_muted,
+                "muted_until": a.muted_until,
+                "error_count": a.error_count,
+            }
+            for a in self.accounts.values()
+        ]
         return {
             "total": total,
             "in_use": in_use,
             "available": available,
             "logged_in": logged_in,
+            "muted": muted,
             "queue_size": len(self.queue),
-            "max_concurrent_per_account": self.max_concurrent_per_account,
+            "accounts": accounts_list,
         }
