@@ -67,14 +67,6 @@ async def list_models(authorization: str = Header(...)):
             {"id": "deepseek-reasoner", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
             {"id": "deepseek-v4-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
             {"id": "deepseek-v4-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "deepseek-v4-flash-search", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "deepseek-v4-pro-search", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "deepseek-v4-vision", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
-            {"id": "gpt-4o", "object": "model", "created": int(time.time()), "owned_by": "openai"},
-            {"id": "gpt-4-turbo", "object": "model", "created": int(time.time()), "owned_by": "openai"},
-            {"id": "claude-3-opus", "object": "model", "created": int(time.time()), "owned_by": "anthropic"},
-            {"id": "claude-3-sonnet", "object": "model", "created": int(time.time()), "owned_by": "anthropic"},
-            {"id": "gemini-pro", "object": "model", "created": int(time.time()), "owned_by": "google"},
         ],
         "object": "list",
     }
@@ -109,6 +101,10 @@ async def chat_completions(
 
     prompt = request.messages[-1].content
 
+    # 模型别名: chat→flash, reasoner→pro
+    MODEL_ALIASES = {"deepseek-chat": "deepseek-v4-flash", "deepseek-reasoner": "deepseek-v4-pro"}
+    model = MODEL_ALIASES.get(request.model, request.model)
+
     account = await manager.acquire()
 
     try:
@@ -118,7 +114,7 @@ async def chat_completions(
             async def stream_with_cleanup():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 try:
-                    async for chunk in browser.stream_message(prompt, timeout=120, model=request.model):
+                    async for chunk in browser.stream_message(prompt, timeout=120, model=model):
                         data = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -159,7 +155,7 @@ async def chat_completions(
                 media_type="text/event-stream",
             )
 
-        response_text = await browser.send_message(prompt, timeout=120, model=request.model)
+        response_text = await browser.send_message(prompt, timeout=120, model=model)
 
         await manager.release(account)
 
@@ -186,212 +182,6 @@ async def chat_completions(
         await manager.mark_error(account)
         raise HTTPException(status_code=503, detail=str(e))
 
-
-@app.get("/anthropic/v1/models")
-async def anthropic_models(authorization: str = Header(...)):
-    verify_api_key(authorization)
-
-    return {
-        "data": [
-            {"id": "claude-sonnet-4-6", "object": "model", "created": int(time.time()), "owned_by": "anthropic"},
-            {"id": "claude-opus-4-6", "object": "model", "created": int(time.time()), "owned_by": "anthropic"},
-            {"id": "claude-haiku-4-5", "object": "model", "created": int(time.time()), "owned_by": "anthropic"},
-        ],
-        "object": "list",
-    }
-
-
-@app.post("/anthropic/v1/messages")
-async def anthropic_messages(request: Request, authorization: str = Header(...)):
-    verify_api_key(authorization)
-
-    body = await request.json()
-    messages = body.get("messages", [])
-    model = body.get("model", "claude-sonnet-4-6")
-    stream = body.get("stream", False)
-
-    if not messages:
-        raise HTTPException(status_code=400, detail="No messages provided")
-
-    prompt = messages[-1].get("content", "")
-
-    account = await manager.acquire()
-
-    try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
-
-        if stream:
-            async def stream_with_cleanup():
-                try:
-                    async for chunk in browser.stream_message(prompt, timeout=120, model=model):
-                        data = {
-                            "type": "content_block_delta",
-                            "index": 0,
-                            "delta": {"type": "text_delta", "text": chunk},
-                        }
-                        yield f"event: content_block_delta\ndata: {json.dumps(data)}\n\n"
-                    
-                    yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
-                except Exception as e:
-                    yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': {'type': 'server_error', 'message': str(e)}})}\n\n"
-                finally:
-                    await manager.release(account)
-
-            return StreamingResponse(
-                stream_with_cleanup(),
-                media_type="text/event-stream",
-            )
-
-        response_text = await browser.send_message(prompt, timeout=120, model=model)
-
-        await manager.release(account)
-
-        return {
-            "id": f"msg_{uuid.uuid4().hex[:8]}",
-            "type": "message",
-            "role": "assistant",
-            "model": model,
-            "content": [{"type": "text", "text": response_text}],
-            "stop_reason": "end_turn",
-            "usage": {
-                "input_tokens": len(prompt.split()),
-                "output_tokens": len(response_text.split()),
-            },
-        }
-
-    except Exception as e:
-        await manager.mark_error(account)
-        raise HTTPException(status_code=503, detail=str(e))
-
-
-@app.post("/v1beta/models/{model}:generateContent")
-async def gemini_generate(model: str, request: Request, authorization: str = Header(...)):
-    verify_api_key(authorization)
-
-    body = await request.json()
-    contents = body.get("contents", [])
-
-    if not contents:
-        raise HTTPException(status_code=400, detail="No contents provided")
-
-    prompt = contents[-1].get("parts", [{}])[0].get("text", "")
-
-    account = await manager.acquire()
-
-    try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
-
-        response_text = await browser.send_message(prompt, timeout=120, model=model)
-
-        await manager.release(account)
-
-        return {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [{"text": response_text}],
-                        "role": "model",
-                    },
-                    "finishReason": "STOP",
-                }
-            ],
-            "usageMetadata": {
-                "promptTokenCount": len(prompt.split()),
-                "candidatesTokenCount": len(response_text.split()),
-                "totalTokenCount": len(prompt.split()) + len(response_text.split()),
-            },
-        }
-
-    except Exception as e:
-        await manager.mark_error(account)
-        raise HTTPException(status_code=503, detail=str(e))
-
-
-@app.post("/v1beta/models/{model}:streamGenerateContent")
-async def gemini_stream_generate(model: str, request: Request, authorization: str = Header(...)):
-    verify_api_key(authorization)
-
-    body = await request.json()
-    contents = body.get("contents", [])
-
-    if not contents:
-        raise HTTPException(status_code=400, detail="No contents provided")
-
-    prompt = contents[-1].get("parts", [{}])[0].get("text", "")
-
-    account = await manager.acquire()
-
-    try:
-        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
-
-        async def stream_with_cleanup():
-            try:
-                async for chunk in browser.stream_message(prompt, timeout=120, model=model):
-                    data = {
-                        "candidates": [
-                            {
-                                "content": {
-                                    "parts": [{"text": chunk}],
-                                    "role": "model",
-                                },
-                            }
-                        ],
-                    }
-                    yield f"data: {json.dumps(data)}\n\n"
-                
-                final_data = {
-                    "candidates": [
-                        {
-                            "content": {"parts": [], "role": "model"},
-                            "finishReason": "STOP",
-                        }
-                    ],
-                    "usageMetadata": {
-                        "promptTokenCount": 0,
-                        "candidatesTokenCount": 0,
-                        "totalTokenCount": 0,
-                    },
-                }
-                yield f"data: {json.dumps(final_data)}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'error': {'message': str(e)}})}\n\n"
-            finally:
-                await manager.release(account)
-
-        return StreamingResponse(
-            stream_with_cleanup(),
-            media_type="text/event-stream",
-        )
-
-    except Exception as e:
-        await manager.mark_error(account)
-        raise HTTPException(status_code=503, detail=str(e))
-
-
-@app.get("/api/version")
-async def ollama_version():
-    return {"version": "0.1.0"}
-
-
-@app.get("/api/tags")
-async def ollama_tags():
-    return {
-        "models": [
-            {"name": "deepseek-chat", "model": "deepseek-chat"},
-            {"name": "deepseek-reasoner", "model": "deepseek-reasoner"},
-        ]
-    }
-
-
-@app.post("/api/show")
-async def ollama_show(request: Request):
-    body = await request.json()
-    model = body.get("model", "deepseek-chat")
-
-    return {
-        "id": model,
-        "capabilities": ["tools", "thinking"],
-    }
 
 
 @app.get("/healthz")
