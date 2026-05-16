@@ -25,6 +25,7 @@ class BrowserConfig:
     timeout: int = 60000
     viewport_width: int = 1920
     viewport_height: int = 1080
+    max_concurrent_per_account: int = 3
 
 
 @dataclass
@@ -33,6 +34,7 @@ class Config:
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     accounts: List[AccountConfig] = field(default_factory=list)
     api_keys: List[str] = field(default_factory=lambda: ["sk-default"])
+    default_proxy: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -60,9 +62,11 @@ class Config:
                 headless=os.getenv("DS2API_HEADLESS", "true").lower() == "true",
                 humanize=os.getenv("DS2API_HUMANIZE", "true").lower() == "true",
                 timeout=int(os.getenv("DS2API_TIMEOUT", "60000")),
+                max_concurrent_per_account=int(os.getenv("DS2API_MAX_CONCURRENT", "3")),
             ),
             accounts=accounts,
             api_keys=os.getenv("DS2API_KEYS", "sk-default").split(","),
+            default_proxy=os.getenv("DS2API_DEFAULT_PROXY"),
         )
 
 

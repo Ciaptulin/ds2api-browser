@@ -73,8 +73,12 @@
         <div class="card">
             <label>账号管理</label>
             <div class="form-group" style="margin-top: 10px;">
-                <label>导入账号 (格式: email:password，每行一个)</label>
-                <textarea id="accountsInput" rows="4" placeholder="user1@gmail.com:password1&#10;user2@gmail.com:password2"></textarea>
+                <label>导入账号 (格式: email:password:代理地址，每行一个)</label>
+                <textarea id="accountsInput" rows="4" placeholder="user1@gmail.com:password1&#10;user2@gmail.com:password2:socks5://127.0.0.1:1080"></textarea>
+            </div>
+            <div class="form-group">
+                <label>默认代理 (可选，格式: socks5://127.0.0.1:1080)</label>
+                <input type="text" id="defaultProxy" placeholder="socks5://127.0.0.1:1080">
             </div>
             <div style="display: flex; gap: 10px;">
                 <button onclick="importAccounts()" style="flex: 1;">导入账号</button>
@@ -198,6 +202,7 @@
             const apiUrl = document.getElementById('apiUrl').value;
             const apiKey = document.getElementById('apiKey').value;
             const accountsText = document.getElementById('accountsInput').value.trim();
+            const defaultProxy = document.getElementById('defaultProxy').value.trim();
             const accountsList = document.getElementById('accountsList');
             
             if (!accountsText) {
@@ -210,14 +215,18 @@
             const accounts = [];
             
             for (const line of lines) {
-                const [email, password] = line.split(':');
-                if (email && password) {
-                    accounts.push({ email: email.trim(), password: password.trim() });
+                const parts = line.split(':');
+                if (parts.length >= 2) {
+                    accounts.push({ 
+                        email: parts[0].trim(), 
+                        password: parts[1].trim(),
+                        proxy: parts[2] ? parts[2].trim() : null
+                    });
                 }
             }
             
             if (accounts.length === 0) {
-                accountsList.textContent = '格式错误，请使用 email:password 格式';
+                accountsList.textContent = '格式错误，请使用 email:password 或 email:password:proxy 格式';
                 accountsList.className = 'response error';
                 return;
             }
@@ -226,6 +235,11 @@
             accountsList.className = 'response loading';
             
             try {
+                const body = { accounts };
+                if (defaultProxy) {
+                    body.default_proxy = defaultProxy;
+                }
+                
                 const response = await fetch(`${apiUrl}/admin/accounts/import`, {
                     method: 'POST',
                     headers: {
@@ -233,7 +247,7 @@
                         'Authorization': `Bearer ${apiKey}`,
                         'admin-key': 'admin'
                     },
-                    body: JSON.stringify({ accounts })
+                    body: JSON.stringify(body)
                 });
                 
                 const data = await response.json();

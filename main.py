@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 config: Config = load_config()
-manager = AccountManager(max_inflight=1)
+manager = AccountManager(max_concurrent_per_account=config.browser.max_concurrent_per_account)
 
 
 class Message(BaseModel):
@@ -413,6 +413,7 @@ async def import_accounts(request: Request, admin_key: str = Header(...)):
 
     body = await request.json()
     accounts = body.get("accounts", [])
+    default_proxy = body.get("default_proxy") or config.default_proxy
 
     if not accounts:
         raise HTTPException(status_code=400, detail="No accounts provided")
@@ -422,7 +423,7 @@ async def import_accounts(request: Request, admin_key: str = Header(...)):
         email = acc.get("email")
         password = acc.get("password")
         name = acc.get("name", "")
-        proxy = acc.get("proxy")
+        proxy = acc.get("proxy") or default_proxy
 
         if email and password:
             manager.add_account(email, password, name, proxy)
@@ -452,14 +453,18 @@ async def list_accounts(admin_key: str = Header(...)):
 @app.on_event("startup")
 async def startup():
     for acc in config.accounts:
+        proxy = acc.proxy or config.default_proxy
         manager.add_account(
             email=acc.email,
             password=acc.password,
             name=acc.name,
-            proxy=acc.proxy,
+            proxy=proxy,
         )
 
     print(f"Loaded {len(config.accounts)} accounts")
+    print(f"Max concurrent per account: {config.browser.max_concurrent_per_account}")
+    if config.default_proxy:
+        print(f"Default proxy: {config.default_proxy}")
 
 
 def main():

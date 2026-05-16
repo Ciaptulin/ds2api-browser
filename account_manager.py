@@ -1,4 +1,5 @@
 import asyncio
+import random
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -13,16 +14,17 @@ class Account:
     name: str = ""
     proxy: Optional[str] = None
     browser: Optional[DeepSeekBrowser] = field(default=None, repr=False)
-    in_use: bool = False
+    in_use_count: int = 0  # 当前并发数
+    max_concurrent: int = 3  # 最大并发数
     error_count: int = 0
     logged_in: bool = False
 
 
 class AccountManager:
-    def __init__(self, max_inflight: int = 1):
+    def __init__(self, max_concurrent_per_account: int = 3):
         self.accounts: Dict[str, Account] = {}
         self.queue: deque = deque()
-        self.max_inflight = max_inflight
+        self.max_concurrent_per_account = max_concurrent_per_account
         self._lock = asyncio.Lock()
 
     def add_account(self, email: str, password: str, name: str = "", proxy: Optional[str] = None):
@@ -31,15 +33,18 @@ class AccountManager:
             password=password,
             name=name,
             proxy=proxy,
+            max_concurrent=self.max_concurrent_per_account,
         )
 
     async def acquire(self) -> Account:
         async with self._lock:
+            # 找一个可用的账号（并发数未满）
             for account in self.accounts.values():
-                if not account.in_use and account.error_count < 3:
-                    account.in_use = True
+                if account.in_use_count < account.max_concurrent and account.error_count < 3:
+                    account.in_use_count += 1
                     return account
 
+        # 没有可用账号，等待
         return await self._wait_for_account()
 
     async def _wait_for_account(self) -> Account:
@@ -51,15 +56,15 @@ class AccountManager:
 
         async with self._lock:
             for account in self.accounts.values():
-                if not account.in_use and account.error_count < 3:
-                    account.in_use = True
+                if account.in_use_count < account.max_concurrent and account.error_count < 3:
+                    account.in_use_count += 1
                     return account
 
         raise RuntimeError("No account available")
 
     async def release(self, account: Account):
         async with self._lock:
-            account.in_use = False
+            account.in_use_count = max(0, account.in_use_count - 1)
             if self.queue:
                 event = self.queue.popleft()
                 event.set()
@@ -67,7 +72,7 @@ class AccountManager:
     async def mark_error(self, account: Account):
         async with self._lock:
             account.error_count += 1
-            account.in_use = False
+            account.in_use_count = max(0, account.in_use_count - 1)
             if self.queue:
                 event = self.queue.popleft()
                 event.set()
@@ -109,8 +114,8 @@ class AccountManager:
 
     def get_stats(self) -> Dict:
         total = len(self.accounts)
-        in_use = sum(1 for a in self.accounts.values() if a.in_use)
-        available = sum(1 for a in self.accounts.values() if not a.in_use and a.error_count < 3)
+        in_use = sum(a.in_use_count for a in self.accounts.values())
+        available = sum(1 for a in self.accounts.values() if a.in_use_count < a.max_concurrent and a.error_count < 3)
         logged_in = sum(1 for a in self.accounts.values() if a.logged_in)
         return {
             "total": total,
@@ -118,4 +123,5 @@ class AccountManager:
             "available": available,
             "logged_in": logged_in,
             "queue_size": len(self.queue),
+            "max_concurrent_per_account": self.max_concurrent_per_account,
         }
