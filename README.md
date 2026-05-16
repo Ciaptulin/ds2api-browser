@@ -51,7 +51,7 @@ python main.py
 ### 方式 2: 直接运行
 
 ```bash
-python start.py
+python run.py
 ```
 
 ### 方式 3: 后台运行
