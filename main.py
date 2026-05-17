@@ -83,6 +83,7 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    tools: Optional[list[dict]] = None
 
 
 def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
@@ -139,6 +140,10 @@ async def chat_completions(
         raise HTTPException(status_code=400, detail="No messages provided")
 
     prompt = request.messages[-1].content
+    
+    if request.tools:
+        tool_desc = json.dumps(request.tools, ensure_ascii=False)
+        prompt += f"\n\n[SYSTEM INSTRUCTION: You have access to the following tools:\n{tool_desc}\nIf you must use a tool to fulfill the request, output ONLY a JSON block wrapped in <tool_call>...</tool_call> tags, like:\n<tool_call>{{\"name\": \"tool_name\", \"arguments\": {{\"arg1\": \"value\"}} }}</tool_call>\nDo NOT output any other text if you are calling a tool.]"
 
     model = request.model
 
@@ -151,15 +156,38 @@ async def chat_completions(
             async def stream_with_cleanup():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 try:
+                    is_tool_call = False
+                    not_tool_call = False
+                    content_buffer = ""
+                    
                     async for chunk_data in browser.stream_message(prompt, timeout=120, model=model):
                         chunk_type = chunk_data.get("type", "content")
                         chunk_text = chunk_data.get("chunk", "")
                         
-                        delta = {}
                         if chunk_type == "thinking":
-                            delta["reasoning_content"] = chunk_text
+                            delta = {"reasoning_content": chunk_text}
                         else:
-                            delta["content"] = chunk_text
+                            if request.tools and not is_tool_call and not not_tool_call:
+                                content_buffer += chunk_text
+                                # Wait until we have enough characters to decide
+                                if len(content_buffer) < 12:
+                                    if not "<tool_call>".startswith(content_buffer):
+                                        not_tool_call = True
+                                        delta = {"content": content_buffer}
+                                    else:
+                                        continue # keep buffering
+                                else:
+                                    if content_buffer.startswith("<tool_call>"):
+                                        is_tool_call = True
+                                        continue # buffer the whole tool call
+                                    else:
+                                        not_tool_call = True
+                                        delta = {"content": content_buffer}
+                            elif request.tools and is_tool_call:
+                                content_buffer += chunk_text
+                                continue # buffer until stream ends
+                            else:
+                                delta = {"content": chunk_text}
 
                         data = {
                             "id": chunk_id,
@@ -175,6 +203,39 @@ async def chat_completions(
                             ],
                         }
                         yield f"data: {json.dumps(data)}\n\n"
+                    
+                    if is_tool_call:
+                        # Process buffered tool call at the end
+                        import re
+                        m = re.search(r'<tool_call>(.*?)</tool_call>', content_buffer, re.DOTALL)
+                        if m:
+                            try:
+                                tcall = json.loads(m.group(1))
+                                t_name = tcall.get("name", "")
+                                t_args = json.dumps(tcall.get("arguments", {}))
+                                delta = {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                                            "type": "function",
+                                            "function": {
+                                                "name": t_name,
+                                                "arguments": t_args
+                                            }
+                                        }
+                                    ]
+                                }
+                                data = {
+                                    "id": chunk_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": request.model,
+                                    "choices": [{"index": 0, "delta": delta, "finish_reason": "tool_calls"}]
+                                }
+                                yield f"data: {json.dumps(data)}\n\n"
+                            except Exception as e:
+                                logger.error("Failed to parse tool call: %s", e)
                     
                     final_data = {
                         "id": chunk_id,
@@ -215,6 +276,29 @@ async def chat_completions(
         message_data = {"role": "assistant", "content": content}
         if reasoning_content:
             message_data["reasoning_content"] = reasoning_content
+            
+        finish_reason = "stop"
+        
+        if request.tools and "<tool_call>" in content:
+            import re
+            m = re.search(r'<tool_call>(.*?)</tool_call>', content, re.DOTALL)
+            if m:
+                try:
+                    tcall = json.loads(m.group(1))
+                    message_data["content"] = None
+                    message_data["tool_calls"] = [
+                        {
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {
+                                "name": tcall.get("name", ""),
+                                "arguments": json.dumps(tcall.get("arguments", {}))
+                            }
+                        }
+                    ]
+                    finish_reason = "tool_calls"
+                except Exception as e:
+                    logger.error("Failed to parse non-stream tool call: %s", e)
 
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
@@ -225,7 +309,7 @@ async def chat_completions(
                 {
                     "index": 0,
                     "message": message_data,
-                    "finish_reason": "stop",
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": {
@@ -339,6 +423,11 @@ async def admin_chat(request: Request, admin_key: str = Header(...)):
         raise HTTPException(status_code=400, detail="No messages provided")
 
     prompt = req.messages[-1].content
+    
+    if req.tools:
+        tool_desc = json.dumps(req.tools, ensure_ascii=False)
+        prompt += f"\n\n[SYSTEM INSTRUCTION: You have access to the following tools:\n{tool_desc}\nIf you must use a tool to fulfill the request, output ONLY a JSON block wrapped in <tool_call>...</tool_call> tags, like:\n<tool_call>{{\"name\": \"tool_name\", \"arguments\": {{\"arg1\": \"value\"}} }}</tool_call>\nDo NOT output any other text if you are calling a tool.]"
+        
     model = req.model
     account = await manager.acquire()
 
@@ -349,15 +438,37 @@ async def admin_chat(request: Request, admin_key: str = Header(...)):
             async def stream_with_cleanup():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 try:
+                    is_tool_call = False
+                    not_tool_call = False
+                    content_buffer = ""
+                    
                     async for chunk_data in browser.stream_message(prompt, timeout=120, model=model):
                         chunk_type = chunk_data.get("type", "content")
                         chunk_text = chunk_data.get("chunk", "")
                         
-                        delta = {}
                         if chunk_type == "thinking":
-                            delta["reasoning_content"] = chunk_text
+                            delta = {"reasoning_content": chunk_text}
                         else:
-                            delta["content"] = chunk_text
+                            if req.tools and not is_tool_call and not not_tool_call:
+                                content_buffer += chunk_text
+                                if len(content_buffer) < 12:
+                                    if not "<tool_call>".startswith(content_buffer):
+                                        not_tool_call = True
+                                        delta = {"content": content_buffer}
+                                    else:
+                                        continue
+                                else:
+                                    if content_buffer.startswith("<tool_call>"):
+                                        is_tool_call = True
+                                        continue
+                                    else:
+                                        not_tool_call = True
+                                        delta = {"content": content_buffer}
+                            elif req.tools and is_tool_call:
+                                content_buffer += chunk_text
+                                continue
+                            else:
+                                delta = {"content": chunk_text}
                         
                         data = {
                             "id": chunk_id,
@@ -367,6 +478,39 @@ async def admin_chat(request: Request, admin_key: str = Header(...)):
                             "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
                         }
                         yield f"data: {json.dumps(data)}\n\n"
+                        
+                    if is_tool_call:
+                        import re
+                        m = re.search(r'<tool_call>(.*?)</tool_call>', content_buffer, re.DOTALL)
+                        if m:
+                            try:
+                                tcall = json.loads(m.group(1))
+                                t_name = tcall.get("name", "")
+                                t_args = json.dumps(tcall.get("arguments", {}))
+                                delta = {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                                            "type": "function",
+                                            "function": {
+                                                "name": t_name,
+                                                "arguments": t_args
+                                            }
+                                        }
+                                    ]
+                                }
+                                data = {
+                                    "id": chunk_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": req.model,
+                                    "choices": [{"index": 0, "delta": delta, "finish_reason": "tool_calls"}]
+                                }
+                                yield f"data: {json.dumps(data)}\n\n"
+                            except Exception as e:
+                                logger.error("Failed to parse admin stream tool call: %s", e)
+                                
                     yield f"data: {json.dumps({'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req.model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
                     yield "data: [DONE]\n\n"
                 except Exception as e:
@@ -388,6 +532,29 @@ async def admin_chat(request: Request, admin_key: str = Header(...)):
         message_data = {"role": "assistant", "content": content}
         if reasoning_content:
             message_data["reasoning_content"] = reasoning_content
+            
+        finish_reason = "stop"
+        
+        if req.tools and "<tool_call>" in content:
+            import re
+            m = re.search(r'<tool_call>(.*?)</tool_call>', content, re.DOTALL)
+            if m:
+                try:
+                    tcall = json.loads(m.group(1))
+                    message_data["content"] = None
+                    message_data["tool_calls"] = [
+                        {
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {
+                                "name": tcall.get("name", ""),
+                                "arguments": json.dumps(tcall.get("arguments", {}))
+                            }
+                        }
+                    ]
+                    finish_reason = "tool_calls"
+                except Exception as e:
+                    logger.error("Failed to parse admin non-stream tool call: %s", e)
 
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
