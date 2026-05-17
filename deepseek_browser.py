@@ -182,6 +182,11 @@ class DeepSeekBrowser:
             self._ready = True
             logger.info("Login successful!")
         except Exception:
+            try:
+                await self.page.screenshot(path=f"/tmp/login_fail_{self.email.replace('@','_at_')}_final.png")
+                logger.error("Final login screenshot saved to /tmp/login_fail_%s_final.png", self.email.replace('@', '_at_'))
+            except Exception:
+                pass
             raise Exception("Login failed")
 
     async def _human_delay(self, min_ms: int = 50, max_ms: int = 150):
