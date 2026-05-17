@@ -42,6 +42,9 @@ source venv/Scripts/activate # Win平台用这个
 
 # 安装依赖
 pip install -r requirements.txt
+# 提示类似 Browser not found或者下载失败运行
+# cloakbrowser安装完后，它的第一次运行还需要去下载一个“隐身版”的 Chromium 浏览器内核（大概 200MB 左右）
+python -m playwright install --with-deps chromium
 ```
 
 ## 使用
