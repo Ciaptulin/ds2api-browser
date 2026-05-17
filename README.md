@@ -32,12 +32,13 @@ CloakBrowser 是专为反检测设计的浏览器，通过 30/30 机器人检测
 
 ```bash
 # 克隆仓库
-git clone https://github.com/huanxherta/ds2api-browser.git
+# git clone https://github.com/Ciaptulin/ds2api-browser.git
 cd ds2api-browser
 
 # 创建虚拟环境
 python -m venv venv
-source venv/bin/activate
+# source venv/bin/activate
+source venv/Scripts/activate # Win平台用这个
 
 # 安装依赖
 pip install -r requirements.txt
