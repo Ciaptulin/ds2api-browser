@@ -1,3 +1,12 @@
+---
+title: DS2API Browser
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # DS2API Browser
 
 基于 CloakBrowser 的 DeepSeek API 代理服务。
