@@ -266,8 +266,8 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
           <h2><span class="icon">📥</span> 导入账号</h2>
         </div>
         <div class="card-body">
-          <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">格式：邮箱:密码[:备注] ，每行一个</div>
-          <textarea id="inp" placeholder="user@gmail.com:password&#10;user2@gmail.com:password:备注" style="min-height:70px"></textarea>
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">支持 JSON 或 邮箱:密码[:备注] 格式，每行一个</div>
+          <textarea id="inp" placeholder="[&#10;  {&quot;email&quot;:&quot;user@gmail.com&quot;,&quot;password&quot;:&quot;xxx&quot;},&#10;  {&quot;email&quot;:&quot;user2@gmail.com&quot;,&quot;password&quot;:&quot;xxx&quot;,&quot;name&quot;:&quot;备注&quot;}&#10;]" style="min-height:110px"></textarea>
           <div class="row" style="margin-top:12px">
             <button class="btn btn-primary" onclick="doImport()">▸ 导入</button>
             <span id="msg" style="font-size:11px;color:var(--text-dim)"></span>
@@ -563,12 +563,30 @@ async function doImport(){
   const v=document.getElementById('inp').value.trim();
   if(!v)return toast('请输入账号',0);
   const accts=[];
-  for(const l of v.split('\n')){
-    const t=l.trim();if(!t)continue;
-    const p=t.split(':',3);
-    if(p.length>=2)accts.push({email:p[0].trim(),password:p[1],name:p[2]||''});
+  // 自动检测：JSON 格式 vs 文本格式
+  if(/^\s*[\[{]/.test(v)){
+    try{
+      let parsed=JSON.parse(v);
+      if(Array.isArray(parsed)){
+        for(const a of parsed){
+          if(a.email&&a.password)accts.push({email:a.email.trim(),password:a.password,name:a.name||'',proxy:a.proxy||''});
+        }
+      }else if(parsed.accounts&&Array.isArray(parsed.accounts)){
+        for(const a of parsed.accounts){
+          if(a.email&&a.password)accts.push({email:a.email.trim(),password:a.password,name:a.name||'',proxy:a.proxy||''});
+        }
+      }else if(parsed.email&&parsed.password){
+        accts.push({email:parsed.email.trim(),password:parsed.password,name:parsed.name||'',proxy:parsed.proxy||''});
+      }
+    }catch(e){return toast('JSON 解析失败: '+e.message,0)}
+  }else{
+    for(const l of v.split('\n')){
+      const t=l.trim();if(!t)continue;
+      const p=t.split(':',4);
+      if(p.length>=2)accts.push({email:p[0].trim(),password:p[1],name:p[2]||'',proxy:p[3]||''});
+    }
   }
-  if(!accts.length)return toast('格式错误',0);
+  if(!accts.length)return toast('未识别到有效账号',0);
   try{
     const d=await api('/admin/accounts/import',{
       method:'POST',json:true,
