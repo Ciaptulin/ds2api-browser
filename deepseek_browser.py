@@ -49,13 +49,28 @@ class DeepSeekBrowser:
     async def start(self):
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
+        # 极致的省内存参数
+        args = [
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-default-apps",
+            "--disable-sync",
+            "--mute-audio",
+            "--no-sandbox",
+            "--js-flags=--max-old-space-size=128",  # 限制 V8 引擎内存
+            "--renderer-process-limit=1",           # 限制渲染进程
+        ]
+
         self.context = await launch_persistent_context_async(
             user_data_dir=str(self.profile_dir),
             headless=self.headless,
             humanize=self.humanize,
             proxy=self.proxy,
-            viewport={"width": 1920, "height": 1080},
+            viewport={"width": 1280, "height": 720}, # 减小渲染面积，降低合成内存
             locale="zh-CN",
+            args=args,
         )
 
         self.page = await self.context.new_page()

@@ -27,7 +27,7 @@ class Account:
 
 
 class AccountManager:
-    def __init__(self, max_inflight: int = 1, max_active_browsers: int = 5):
+    def __init__(self, max_inflight: int = 1, max_active_browsers: int = 3):
         self.accounts: Dict[str, Account] = {}
         self.queue: deque = deque()
         self.max_inflight = max_inflight
