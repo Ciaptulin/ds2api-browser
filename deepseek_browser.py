@@ -286,7 +286,17 @@ class DeepSeekBrowser:
 
     async def switch_model(self, model: str):
         try:
-            if 'reasoner' in model or 'thinking' in model or 'pro' in model:
+            # 极速思考模式
+            if 'fast' in model or 'lite' in model:
+                fast_btn = self.page.locator(
+                    'button:has-text("极速思考"), div:has-text("极速思考"), '
+                    'button:has-text("快速模式"), div:has-text("快速模式")'
+                ).first
+                if await fast_btn.count() > 0:
+                    await fast_btn.click()
+                    await asyncio.sleep(0.5)
+            # 深度思考 / 专家模式
+            elif 'reasoner' in model or 'thinking' in model or 'pro' in model:
                 thinking_btn = self.page.locator(
                     'button:has-text("深度思考"), div:has-text("深度思考"), '
                     'button:has-text("专家模式"), div:has-text("专家模式"), '
@@ -373,7 +383,7 @@ class DeepSeekBrowser:
         const bodyText = scope.innerText || '';
         if (!result.answer || (!result.thinking && (bodyText.includes('深度思考') || bodyText.includes('思考过程')))) {
             const lines = bodyText.split('\\n').map(l => l.trim()).filter(Boolean);
-            const skip = ['智能搜索', '快速模式', '专家模式',
+            const skip = ['智能搜索', '快速模式', '专家模式', '极速思考',
                           '内容由 AI 生成', '开启新对话', '暂无历史对话'];
             
             let isThinking = false;
@@ -383,11 +393,11 @@ class DeepSeekBrowser:
             for (const l of lines) {
                 if (skip.some(s => l === s)) continue;
                 
-                if (l === '深度思考' || l === '思考过程' || l.startsWith('深度思考...')) {
+                if (l === '深度思考' || l === '思考过程' || l.startsWith('深度思考...') || l.startsWith('极速思考...')) {
                     isThinking = true;
                     continue;
                 }
-                if (l.startsWith('已深度思考') || l.startsWith('深度思考（用时')) {
+                if (l.startsWith('已深度思考') || l.startsWith('深度思考（用时') || l.startsWith('已极速思考') || l.startsWith('极速思考（用时')) {
                     isThinking = false;
                     continue;
                 }
