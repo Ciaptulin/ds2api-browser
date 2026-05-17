@@ -301,21 +301,11 @@ class DeepSeekBrowser:
                 return false;
             }"""
 
-            # 极速思考模式
-            if 'fast' in model or 'lite' in model:
-                await self.page.evaluate(click_js, ['极速思考', '快速模式'])
-                await asyncio.sleep(0.5)
-                
-            # 深度思考 (DeepThink R1)
-            elif 'reasoner' in model or 'thinking' in model or 'pro' in model:
-                await self.page.evaluate(click_js, ['深度思考', 'DeepThink', 'R1'])
-                await asyncio.sleep(0.5)
+            # 默认全局开启深度思考 (R1)，不再区分类别
+            await self.page.evaluate(click_js, ['深度思考', 'DeepThink', 'R1'])
+            await asyncio.sleep(0.5)
 
-            # 专家模式 (独立开关)
-            if 'expert' in model:
-                await self.page.evaluate(click_js, ['专家模式'])
-                await asyncio.sleep(0.5)
-
+            # 保留智能搜索可选
             if 'search' in model:
                 await self.page.evaluate(click_js, ['智能搜索'])
                 await asyncio.sleep(0.5)
