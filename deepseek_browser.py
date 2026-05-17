@@ -115,7 +115,7 @@ class DeepSeekBrowser:
 
         try:
             email_input = self.page.locator('input[placeholder*="邮箱"], input[placeholder*="手机"], input[placeholder*="Email"], input[placeholder*="email"], input[type="text"]').first
-            await email_input.wait_for(state="visible", timeout=10000)
+            await email_input.wait_for(state="visible", timeout=30000)
             await email_input.fill(self.email)
             await asyncio.sleep(0.5)
         except Exception as e:
