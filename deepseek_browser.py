@@ -366,8 +366,8 @@ class DeepSeekBrowser:
         }
 
         // Fallback: parse body text if DOM selectors missed it
-        if (!result.answer && !result.thinking) {
-            const bodyText = scope.innerText || '';
+        const bodyText = scope.innerText || '';
+        if (!result.answer || (!result.thinking && (bodyText.includes('深度思考') || bodyText.includes('思考过程')))) {
             const lines = bodyText.split('\\n').map(l => l.trim()).filter(Boolean);
             const skip = ['智能搜索', '快速模式', '专家模式',
                           '内容由 AI 生成', '开启新对话', '暂无历史对话'];
