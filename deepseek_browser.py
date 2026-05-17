@@ -457,8 +457,6 @@ class DeepSeekBrowser:
         while time.time() < deadline:
             try:
                 result = await self.page.evaluate(self._EXTRACT_JS)
-                # DEBUG LOG
-                logger.debug("Extraction result: %s", str(result)[:200])
                 
                 answer = (result.get("answer") or "").strip()
                 thinking = (result.get("thinking") or "").strip()
@@ -480,6 +478,7 @@ class DeepSeekBrowser:
             await asyncio.sleep(0.5)
 
         if last_answer or last_thinking:
+            logger.info("[_wait_for_response] Done. Think len: %d, Ans len: %d", len(last_thinking), len(last_answer))
             return {"content": last_answer, "reasoning_content": last_thinking}
 
         raise TimeoutError("No response received")
@@ -507,8 +506,6 @@ class DeepSeekBrowser:
             while time.time() < deadline:
                 try:
                     result = await self.page.evaluate(self._EXTRACT_JS)
-                    # DEBUG LOG
-                    logger.debug("Stream extraction result: %s", str(result)[:200])
 
                     thinking = (result.get("thinking") or "").strip()
                     answer = (result.get("answer") or "").strip()
@@ -516,12 +513,14 @@ class DeepSeekBrowser:
                     if thinking and thinking != last_thinking:
                         new_think = thinking[len(last_thinking):]
                         if new_think:
+                            logger.info("[Stream] Thinking: %s", new_think.replace('\\n', ' ')[:50])
                             yield {"type": "thinking", "chunk": new_think}
                         last_thinking = thinking
 
                     if answer and answer != last_answer:
                         new_ans = answer[len(last_answer):]
                         if new_ans:
+                            logger.info("[Stream] Content: %s", new_ans.replace('\\n', ' ')[:50])
                             yield {"type": "content", "chunk": new_ans}
                         last_answer = answer
                         stable_count = 0
