@@ -1,17 +1,45 @@
 import asyncio
+import collections
 import json
 import logging
+import logging.handlers
 import os
 import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+LOG_BUFFER_SIZE = 500
+
+
+class MemoryLogHandler(logging.Handler):
+    """Ring buffer handler that keeps recent log records in memory."""
+    def __init__(self, capacity=LOG_BUFFER_SIZE):
+        super().__init__()
+        self.buffer = collections.deque(maxlen=capacity)
+
+    def emit(self, record):
+        self.buffer.append(self.format(record))
+
+    def get_logs(self, n=100):
+        return list(self.buffer)[-n:]
+
+    def clear(self):
+        self.buffer.clear()
+
+
+_mem_handler = MemoryLogHandler(LOG_BUFFER_SIZE)
+_mem_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format=LOG_FORMAT,
 )
+logging.getLogger().addHandler(_mem_handler)
 logger = logging.getLogger(__name__)
+
+_file_handler: logging.Handler | None = None
 
 from dotenv import load_dotenv
 
@@ -360,6 +388,29 @@ def _apply_settings(data: dict):
         config.api_keys = [k.strip() for k in data["api_keys"] if k.strip()]
     if "admin_key" in data and data["admin_key"]:
         config.server.admin_key = data["admin_key"]
+    if "log_file_enabled" in data:
+        _setup_file_handler(
+            enabled=data["log_file_enabled"],
+            max_mb=data.get("log_file_max_mb", 10),
+        )
+
+
+def _setup_file_handler(enabled: bool, max_mb: int = 10):
+    """Add or remove a rotating file handler."""
+    global _file_handler
+    root = logging.getLogger()
+    if _file_handler:
+        root.removeHandler(_file_handler)
+        _file_handler.close()
+        _file_handler = None
+    if enabled:
+        log_path = Path(__file__).parent / "ds2api.log"
+        _file_handler = logging.handlers.RotatingFileHandler(
+            log_path, maxBytes=max_mb * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        _file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+        root.addHandler(_file_handler)
+        logger.info("Log file enabled: %s (max %dMB)", log_path, max_mb)
 
 
 @app.get("/admin/settings")
@@ -371,6 +422,9 @@ async def get_settings(admin_key: str = Header(...)):
         "admin_key": config.server.admin_key,
         "headless": config.browser.headless,
         "port": config.server.port,
+        "log_level": logging.getLogger().level,
+        "log_file_enabled": _file_handler is not None,
+        "log_file_max_mb": _load_settings().get("log_file_max_mb", 10),
     }
 
 
@@ -383,6 +437,33 @@ async def save_settings(request: Request, admin_key: str = Header(...)):
     _save_settings(body)
     _apply_settings(body)
     return {"ok": True}
+
+
+@app.get("/admin/logs")
+async def get_logs(admin_key: str = Header(...), n: int = 100):
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    return {"logs": _mem_handler.get_logs(n)}
+
+
+@app.post("/admin/logs/clear")
+async def clear_logs(admin_key: str = Header(...)):
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    _mem_handler.clear()
+    return {"ok": True}
+
+
+@app.post("/admin/logs/level")
+async def set_log_level(request: Request, admin_key: str = Header(...)):
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    body = await request.json()
+    level_name = body.get("level", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.getLogger().setLevel(level)
+    logger.info("Log level changed to %s", level_name)
+    return {"ok": True, "level": level_name}
 
 
 @app.get("/")
