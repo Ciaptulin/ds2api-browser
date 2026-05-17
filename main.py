@@ -667,6 +667,8 @@ def _apply_settings(data: dict):
             enabled=data["log_file_enabled"],
             max_mb=data.get("log_file_max_mb", 10),
         )
+    if "max_active_browsers" in data:
+        manager.max_active_browsers = max(1, int(data["max_active_browsers"]))
     if "accounts" in data:
         for acc in data["accounts"]:
             if acc.get("email") and acc.get("password") and acc.get("email") not in manager.accounts:
@@ -708,6 +710,7 @@ async def get_settings(admin_key: str = Header(...)):
         "log_level": logging.getLogger().level,
         "log_file_enabled": _file_handler is not None,
         "log_file_max_mb": _load_settings().get("log_file_max_mb", 10),
+        "max_active_browsers": manager.max_active_browsers,
     }
 
 
