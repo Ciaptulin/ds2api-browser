@@ -16,6 +16,23 @@
   --radius:16px;--radius-sm:10px;--radius-xs:8px;
   --font-ui:'Inter',system-ui,sans-serif;--font-mono:'JetBrains Mono',monospace;
 }
+html.light-mode{
+  --bg:#f8fafc;--surface:rgba(255,255,255,.85);--surface-solid:#ffffff;
+  --border:rgba(0,0,0,.08);--border-focus:rgba(59,130,246,.5);
+  --text:#0f172a;--text-dim:#475569;--text-muted:#64748b;
+  --accent:hsl(217,92%,55%);--accent-glow:hsla(217,92%,55%,.15);
+}
+html.light-mode body::before{background:radial-gradient(ellipse 80% 50% at 50% -20%,hsla(217,92%,55%,.08),transparent 70%)}
+html.light-mode .topbar{background:rgba(255,255,255,.75)}
+html.light-mode .log-viewer{background:rgba(0,0,0,.03);color:#334155}
+html.light-mode .btn{background:#ffffff;border-color:var(--border)}
+html.light-mode .btn:hover{background:#f1f5f9}
+html.light-mode .btn-primary, html.light-mode .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+html.light-mode input, html.light-mode textarea, html.light-mode select{background:#ffffff;box-shadow:inset 0 1px 2px rgba(0,0,0,.02)}
+html.light-mode input:focus, html.light-mode textarea:focus, html.light-mode select:focus{background:#ffffff}
+html.light-mode th{background:rgba(0,0,0,.04);color:var(--text-dim)}
+html.light-mode .toast{background:var(--surface-solid);color:var(--text);border:1px solid var(--border);box-shadow:0 10px 25px rgba(0,0,0,.1)}
+html.light-mode .login-box{background:rgba(255,255,255,.9)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--font-ui);background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;min-height:100vh;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 50% at 50% -20%,hsla(217,92%,60%,.06),transparent 70%);pointer-events:none;z-index:0}
@@ -174,6 +191,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
     <span class="si"><span class="dot" style="background:var(--amber)"></span> 使用中 <b>—</b></span>
     <span class="si"><span class="dot" style="background:var(--text-dim)"></span> 排队 <b>—</b></span>
   </div>
+  <button class="btn btn-sm" style="padding:4px 8px;border-radius:6px;font-size:12px;margin-left:auto" onclick="toggleTheme()" id="themeBtn">☀️ 日间</button>
   <div class="poll-indicator" id="pollDot"></div>
 </div>
 
@@ -322,6 +340,22 @@ const LS={
   get(k,d){try{return localStorage.getItem('ds2_'+k)||d}catch(e){return d}},
   set(k,v){try{localStorage.setItem('ds2_'+k,v)}catch(e){}}
 };
+
+// ── Theme ──
+function initTheme(){
+  if(LS.get('theme','dark')==='light') document.documentElement.classList.add('light-mode');
+  updateThemeBtn();
+}
+function toggleTheme(){
+  const isLight = document.documentElement.classList.toggle('light-mode');
+  LS.set('theme', isLight ? 'light' : 'dark');
+  updateThemeBtn();
+}
+function updateThemeBtn(){
+  const btn = document.getElementById('themeBtn');
+  if(btn) btn.textContent = document.documentElement.classList.contains('light-mode') ? '🌙 夜间' : '☀️ 日间';
+}
+initTheme();
 
 let _adminKey='';
 
