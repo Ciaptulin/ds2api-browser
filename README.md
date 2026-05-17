@@ -36,19 +36,7 @@ pip install -r requirements.txt
 
 ## 使用
 
-### 方式 1: 环境变量配置
-
-```bash
-export DS2API_ACCOUNTS="email1@gmail.com:password1;email2@gmail.com:password2"
-export DS2API_KEYS="sk-key1,sk-key2"
-export DS2API_ADMIN_KEY="your-admin-key"
-export DS2API_PORT="5001"
-export DS2API_HEADLESS="true"
-
-python main.py
-```
-
-### 方式 2: 直接运行
+### 方式 1: 直接运行
 
 ```bash
 python run.py
@@ -57,7 +45,7 @@ python run.py
 ### 方式 3: 后台运行
 
 ```bash
-nohup python main.py > /tmp/ds2api-browser.log 2>&1 &
+nohup python run.py > /tmp/ds2api-browser.log 2>&1 &
 ```
 
 ## Web 管理界面
@@ -77,7 +65,7 @@ curl http://localhost:5001/v1/chat/completions \
   -H "Authorization: Bearer sk-test123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-flash",
+    "model": "deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -89,7 +77,7 @@ curl http://localhost:5001/v1/chat/completions \
   -H "Authorization: Bearer sk-test123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-flash",
+    "model": "deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -106,7 +94,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="deepseek-flash",
+    model="deepseek-v4-flash",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)
@@ -116,8 +104,8 @@ print(response.choices[0].message.content)
 
 | 模型 ID | 说明 |
 |---------|------|
-| deepseek-flash | 快速模式（默认） |
-| deepseek-pro | 专家模式（深度思考） |
+| deepseek-v4-flash | 标准版（全局默认开启深度思考 R1） |
+| deepseek-v4-pro | 专家版（全局默认开启深度思考 R1） |
 
 ## 健康检查
 
@@ -143,11 +131,10 @@ curl http://localhost:5001/admin/stats -H "admin-key: admin"
 
 ```
 ds2api-browser/
-├── main.py              # FastAPI 服务器（含管理界面）
-├── deepseek_browser.py  # CloakBrowser 自动化核心
-├── account_manager.py   # 账号池管理
+├── main.py              # FastAPI 服务器（API路由与核心拦截层）
+├── deepseek_browser.py  # Playwright/CloakBrowser 自动化爬虫核心
+├── account_manager.py   # 账号池调度与封禁规避
 ├── config.py            # 配置管理
-├── proxy.py             # 多协议代理（Claude/Gemini/Ollama）
 ├── run.py               # 启动入口
 ├── .env.example         # 环境变量模板
 ├── requirements.txt     # 依赖列表
