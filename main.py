@@ -278,6 +278,113 @@ async def admin_verify(request: Request):
     return {"ok": True}
 
 
+@app.post("/admin/chat")
+async def admin_chat(request: Request, admin_key: str = Header(...)):
+    """Chat endpoint for panel testing — uses admin key auth, no API key needed."""
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    body = await request.json()
+    req = ChatCompletionRequest(**body)
+
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+
+    prompt = req.messages[-1].content
+    model = req.model
+    account = await manager.acquire()
+
+    try:
+        browser = await manager.get_or_create_browser_with_retry(account, headless=config.browser.headless)
+
+        if req.stream:
+            async def stream_with_cleanup():
+                chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+                try:
+                    async for chunk in browser.stream_message(prompt, timeout=120, model=model):
+                        data = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": req.model,
+                            "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None}],
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+                    yield f"data: {json.dumps({'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req.model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
+                    yield "data: [DONE]\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'error': {'message': str(e)}})}\n\n"
+                finally:
+                    await manager.release(account)
+
+            return StreamingResponse(stream_with_cleanup(), media_type="text/event-stream")
+
+        response_text = await browser.send_message(prompt, timeout=120, model=model)
+        await manager.release(account)
+
+        prompt_tokens = len(prompt.split())
+        completion_tokens = len(response_text.split())
+        return {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": response_text}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens},
+        }
+    except Exception as e:
+        await manager.mark_error(account)
+        logger.error("Admin chat error: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+SETTINGS_FILE = Path(__file__).parent / "settings.json"
+
+
+def _load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_settings(data: dict):
+    SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _apply_settings(data: dict):
+    """Apply settings to running config."""
+    if "api_keys" in data:
+        config.api_keys = [k.strip() for k in data["api_keys"] if k.strip()]
+    if "admin_key" in data and data["admin_key"]:
+        config.server.admin_key = data["admin_key"]
+
+
+@app.get("/admin/settings")
+async def get_settings(admin_key: str = Header(...)):
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    return {
+        "api_keys": config.api_keys,
+        "admin_key": config.server.admin_key,
+        "headless": config.browser.headless,
+        "port": config.server.port,
+    }
+
+
+@app.post("/admin/settings")
+async def save_settings(request: Request, admin_key: str = Header(...)):
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    body = await request.json()
+    _save_settings(body)
+    _apply_settings(body)
+    return {"ok": True}
+
+
 @app.get("/")
 async def admin_panel():
     return RedirectResponse(url="/static/index.html")
@@ -294,6 +401,12 @@ async def startup():
         )
 
     logger.info("Loaded %d accounts", len(config.accounts))
+
+    # Apply persisted settings
+    saved = _load_settings()
+    if saved:
+        _apply_settings(saved)
+        logger.info("Applied persisted settings from settings.json")
 
     # Pre-login all accounts in background so they show online immediately
     asyncio.create_task(_prelogin_all())

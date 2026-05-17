@@ -184,10 +184,6 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
         <span class="hint">/v1/chat/completions</span>
       </div>
       <div class="card-body">
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="password" id="apiKey" placeholder="sk-xxx">
-        </div>
         <div class="row" style="gap:10px;margin-bottom:14px">
           <div class="form-group" style="flex:1;margin-bottom:0">
             <select id="model">
@@ -246,6 +242,27 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
           </div>
         </div>
       </div>
+      </div>
+      <div class="card" style="animation-delay:.4s">
+        <div class="card-header">
+          <h2><span class="icon">⚙️</span> 设置</h2>
+          <button class="btn btn-sm" onclick="loadSettings()">刷新</button>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>API Keys（每行一个）</label>
+            <textarea id="setApiKeys" placeholder="sk-key1&#10;sk-key2" style="min-height:60px"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Admin Key</label>
+            <input type="password" id="setAdminKey" placeholder="管理密钥">
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="saveSettings()">▸ 保存设置</button>
+            <span id="setMsg" style="font-size:11px;color:var(--text-dim)"></span>
+          </div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -295,12 +312,7 @@ document.getElementById('loginKey').addEventListener('keydown',e=>{if(e.key==='E
   document.getElementById('appWrap').classList.add('blur');
 })();
 
-function getApiKey(){return document.getElementById('apiKey').value.trim()||'sk-default'}
 function getAdminKey(){return _adminKey||'admin'}
-
-// Restore API key
-document.getElementById('apiKey').value=LS.get('apiKey','');
-document.getElementById('apiKey').addEventListener('input',e=>LS.set('apiKey',e.target.value));
 
 function toast(m,ok){
   const e=document.createElement('div');
@@ -342,9 +354,9 @@ async function sendMsg(){
 
   const t0=Date.now();
   try{
-    const r=await fetch(H+'/v1/chat/completions',{
+    const r=await fetch(H+'/admin/chat',{
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+getApiKey()},
+      headers:{'Content-Type':'application/json','admin-key':getAdminKey()},
       body:JSON.stringify({model,messages:[{role:'user',content:prompt}],stream})
     });
     if(!r.ok){const t=await r.text();throw new Error(t||r.status)}
@@ -453,7 +465,32 @@ document.getElementById('prompt').addEventListener('keydown',e=>{if(e.ctrlKey&&e
 let _pollTimer=null;
 function initApp(){
   loadAll();
+  loadSettings();
   if(!_pollTimer)_pollTimer=setInterval(loadAll,12000);
+}
+
+async function loadSettings(){
+  try{
+    const d=await api('/admin/settings',{headers:{'admin-key':getAdminKey()}});
+    document.getElementById('setApiKeys').value=(d.api_keys||[]).join('\n');
+    document.getElementById('setAdminKey').value=d.admin_key||'';
+  }catch(e){}
+}
+
+async function saveSettings(){
+  const keys=document.getElementById('setApiKeys').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  const ak=document.getElementById('setAdminKey').value.trim();
+  if(!keys.length){toast('请至少填写一个 API Key',0);return}
+  try{
+    await api('/admin/settings',{
+      method:'POST',json:true,
+      body:JSON.stringify({api_keys:keys,admin_key:ak||undefined}),
+      headers:{'admin-key':getAdminKey()}
+    });
+    if(ak&&ak!==_adminKey){_adminKey=ak;LS.set('adminKey',ak)}
+    document.getElementById('setMsg').textContent='已保存';
+    toast('设置已保存',1);
+  }catch(e){toast(e.message,0)}
 }
 </script>
 </body>
