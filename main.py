@@ -147,7 +147,16 @@ async def chat_completions(
             async def stream_with_cleanup():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 try:
-                    async for chunk in browser.stream_message(prompt, timeout=120, model=model):
+                    async for chunk_data in browser.stream_message(prompt, timeout=120, model=model):
+                        chunk_type = chunk_data.get("type", "content")
+                        chunk_text = chunk_data.get("chunk", "")
+                        
+                        delta = {}
+                        if chunk_type == "thinking":
+                            delta["reasoning_content"] = chunk_text
+                        else:
+                            delta["content"] = chunk_text
+
                         data = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -156,7 +165,7 @@ async def chat_completions(
                             "choices": [
                                 {
                                     "index": 0,
-                                    "delta": {"content": chunk},
+                                    "delta": delta,
                                     "finish_reason": None,
                                 }
                             ],
@@ -188,13 +197,20 @@ async def chat_completions(
                 media_type="text/event-stream",
             )
 
-        response_text = await browser.send_message(prompt, timeout=120, model=model)
-
+        response_data = await browser.send_message(prompt, timeout=120, model=model)
+        
         await manager.release(account)
 
         # Token counts are estimated by word splitting; not exact tokenization
+        content = response_data.get("content", "")
+        reasoning_content = response_data.get("reasoning_content", "")
+        
         prompt_tokens = len(prompt.split())
-        completion_tokens = len(response_text.split())
+        completion_tokens = len(content.split()) + len(reasoning_content.split())
+
+        message_data = {"role": "assistant", "content": content}
+        if reasoning_content:
+            message_data["reasoning_content"] = reasoning_content
 
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
@@ -204,7 +220,7 @@ async def chat_completions(
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": response_text},
+                    "message": message_data,
                     "finish_reason": "stop",
                 }
             ],
@@ -329,13 +345,22 @@ async def admin_chat(request: Request, admin_key: str = Header(...)):
             async def stream_with_cleanup():
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
                 try:
-                    async for chunk in browser.stream_message(prompt, timeout=120, model=model):
+                    async for chunk_data in browser.stream_message(prompt, timeout=120, model=model):
+                        chunk_type = chunk_data.get("type", "content")
+                        chunk_text = chunk_data.get("chunk", "")
+                        
+                        delta = {}
+                        if chunk_type == "thinking":
+                            delta["reasoning_content"] = chunk_text
+                        else:
+                            delta["content"] = chunk_text
+                        
                         data = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
                             "created": int(time.time()),
                             "model": req.model,
-                            "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None}],
+                            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
                         }
                         yield f"data: {json.dumps(data)}\n\n"
                     yield f"data: {json.dumps({'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req.model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
@@ -347,17 +372,25 @@ async def admin_chat(request: Request, admin_key: str = Header(...)):
 
             return StreamingResponse(stream_with_cleanup(), media_type="text/event-stream")
 
-        response_text = await browser.send_message(prompt, timeout=120, model=model)
+        response_data = await browser.send_message(prompt, timeout=120, model=model)
         await manager.release(account)
 
+        content = response_data.get("content", "")
+        reasoning_content = response_data.get("reasoning_content", "")
+
         prompt_tokens = len(prompt.split())
-        completion_tokens = len(response_text.split())
+        completion_tokens = len(content.split()) + len(reasoning_content.split())
+        
+        message_data = {"role": "assistant", "content": content}
+        if reasoning_content:
+            message_data["reasoning_content"] = reasoning_content
+
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
             "created": int(time.time()),
             "model": req.model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": response_text}, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "message": message_data, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens},
         }
     except Exception as e:

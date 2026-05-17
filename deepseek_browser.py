@@ -300,7 +300,8 @@ class DeepSeekBrowser:
         except Exception:
             pass
 
-    async def send_message(self, prompt: str, timeout: int = 120, model: str = "deepseek-chat") -> str:
+    async def send_message(self, prompt: str, timeout: int = 120, model: str = "deepseek-chat") -> dict:
+        """Send message and return {'content': str, 'reasoning_content': str}."""
         try:
             await self.new_chat()
             await self.switch_model(model)
@@ -308,17 +309,15 @@ class DeepSeekBrowser:
             input_field = self.page.locator('textarea').first
             await input_field.wait_for(state="visible", timeout=15000)
 
-            # Fast fill instead of slow character-by-character typing
             await input_field.fill(prompt)
             await self._human_delay()
             await input_field.press('Enter')
 
-            response = await self._wait_for_response(timeout, prompt)
+            result = await self._wait_for_response(timeout, prompt)
 
-            # Fire-and-forget cleanup
             asyncio.create_task(self._safe_delete_chat())
 
-            return response
+            return result
         except Exception as e:
             logger.error("Send message error: %s", e)
             raise
@@ -330,64 +329,97 @@ class DeepSeekBrowser:
         except Exception as e:
             logger.debug("[safe_delete] %s", e)
 
-    async def _wait_for_response(self, timeout: int, prompt: str = "") -> str:
-        deadline = time.time() + timeout
+    # JavaScript to extract thinking and answer content from DOM
+    _EXTRACT_JS = """() => {
+        const result = {thinking: '', answer: '', done: false};
 
+        // Find all assistant message containers (last one is current)
+        const msgs = document.querySelectorAll(
+            '[class*="assistant"], [class*="bot-"], [class*="message--"]:not([class*="user"])'
+        );
+        const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+        const scope = lastMsg || document.body;
+
+        // Extract thinking/reasoning content
+        const thinkEls = scope.querySelectorAll(
+            '[class*="think"], [class*="Think"], [class*="reasoning"], details, [class*="collapse"]'
+        );
+        for (const el of thinkEls) {
+            const t = el.innerText.trim();
+            if (t && t.length > 5) {
+                result.thinking = t.replace(/^.*深度思考[（(].*?[)）].*$/m, '').trim();
+                break;
+            }
+        }
+
+        // Extract answer content (markdown blocks outside thinking)
+        const mdEls = scope.querySelectorAll(
+            '[class*="markdown"], [class*="Markdown"], [class*="answer"], [class*="content"]'
+        );
+        for (const el of mdEls) {
+            if (el.closest('[class*="think"], [class*="Think"], [class*="reasoning"], details')) continue;
+            const t = el.innerText.trim();
+            if (t && t.length > 2) {
+                result.answer = t;
+                break;
+            }
+        }
+
+        // Fallback: parse body text
+        if (!result.answer) {
+            const bodyText = scope.innerText || '';
+            const lines = bodyText.split('\\n').map(l => l.trim()).filter(Boolean);
+            const skip = ['深度思考', '智能搜索', '快速模式', '专家模式',
+                          '内容由 AI 生成', '开启新对话', '暂无历史对话'];
+            const filtered = lines.filter(l => !skip.some(s => l.includes(s)));
+            result.answer = filtered.join('\\n');
+        }
+
+        // Check if response is complete
+        const stopBtn = document.querySelector('[class*="stop"], button[aria-label*="stop"]');
+        result.done = (!stopBtn || stopBtn.offsetParent === null);
+
+        return result;
+    }"""
+
+    async def _wait_for_response(self, timeout: int, prompt: str = "") -> dict:
+        """Wait for response and return {content, reasoning_content}."""
+        deadline = time.time() + timeout
         await asyncio.sleep(0.8)
 
-        last_text = ""
+        last_answer = ""
+        last_thinking = ""
         stable_count = 0
-
-        skip_phrases = self._get_skip_phrases()
 
         while time.time() < deadline:
             try:
-                text = await self.page.inner_text('body')
+                result = await self.page.evaluate(self._EXTRACT_JS)
+                answer = (result.get("answer") or "").strip()
+                thinking = (result.get("thinking") or "").strip()
 
-                lines = text.split('\n')
-                response_started = False
-                response_text = []
-
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    if line == '内容由 AI 生成，请仔细甄别':
-                        break
-
-                    if any(phrase in line for phrase in skip_phrases):
-                        continue
-
-                    if response_started:
-                        response_text.append(line)
-
-                    if prompt and prompt in line:
-                        response_started = True
-
-                if response_text:
-                    current_text = '\n'.join(response_text)
-
-                    if current_text != last_text:
-                        last_text = current_text
+                if answer or thinking:
+                    if answer != last_answer or thinking != last_thinking:
+                        last_answer = answer
+                        last_thinking = thinking
                         stable_count = 0
                     else:
                         stable_count += 1
 
                     if stable_count >= 3:
-                        return current_text.strip()
+                        return {"content": last_answer, "reasoning_content": last_thinking}
 
             except Exception:
                 pass
 
             await asyncio.sleep(0.5)
 
-        if last_text:
-            return last_text.strip()
+        if last_answer or last_thinking:
+            return {"content": last_answer, "reasoning_content": last_thinking}
 
         raise TimeoutError("No response received")
 
-    async def stream_message(self, prompt: str, timeout: int = 120, model: str = "deepseek-chat") -> AsyncGenerator[str, None]:
+    async def stream_message(self, prompt: str, timeout: int = 120, model: str = "deepseek-chat") -> AsyncGenerator[dict, None]:
+        """Stream response, yielding dicts: {'type': 'thinking'|'content', 'chunk': str}."""
         try:
             await self.new_chat()
             await self.switch_model(model)
@@ -395,65 +427,46 @@ class DeepSeekBrowser:
             input_field = self.page.locator('textarea').first
             await input_field.wait_for(state="visible", timeout=15000)
 
-            # Fast fill
             await input_field.fill(prompt)
             await self._human_delay()
             await input_field.press('Enter')
 
             deadline = time.time() + timeout
-            last_text = ""
+            last_thinking = ""
+            last_answer = ""
             stable_count = 0
-
-            skip_phrases = self._get_skip_phrases()
 
             await asyncio.sleep(0.8)
 
             while time.time() < deadline:
                 try:
-                    text = await self.page.inner_text('body')
+                    result = await self.page.evaluate(self._EXTRACT_JS)
+                    thinking = (result.get("thinking") or "").strip()
+                    answer = (result.get("answer") or "").strip()
 
-                    lines = text.split('\n')
-                    response_started = False
-                    response_text = []
+                    if thinking and thinking != last_thinking:
+                        new_think = thinking[len(last_thinking):]
+                        if new_think:
+                            yield {"type": "thinking", "chunk": new_think}
+                        last_thinking = thinking
 
-                    for line in lines:
-                        line = line.strip()
-                        if not line:
-                            continue
+                    if answer and answer != last_answer:
+                        new_ans = answer[len(last_answer):]
+                        if new_ans:
+                            yield {"type": "content", "chunk": new_ans}
+                        last_answer = answer
+                        stable_count = 0
+                    elif answer:
+                        stable_count += 1
 
-                        if line == '内容由 AI 生成，请仔细甄别':
-                            break
-
-                        if any(phrase in line for phrase in skip_phrases):
-                            continue
-
-                        if response_started:
-                            response_text.append(line)
-
-                        if prompt and prompt in line:
-                            response_started = True
-
-                    if response_text:
-                        current_text = '\n'.join(response_text)
-
-                        if current_text != last_text:
-                            new_chunk = current_text[len(last_text):]
-                            if new_chunk:
-                                yield new_chunk
-                            last_text = current_text
-                            stable_count = 0
-                        else:
-                            stable_count += 1
-
-                        if stable_count >= 3:
-                            break
+                    if stable_count >= 3:
+                        break
 
                 except Exception:
                     pass
 
                 await asyncio.sleep(0.3)
 
-            # Clean up: delete the chat after streaming is done (#17)
             try:
                 await self.delete_chat()
             except Exception as e:

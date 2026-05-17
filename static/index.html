@@ -140,6 +140,12 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .level-btns .btn{padding:4px 10px;font-size:10px;font-family:var(--font-mono);border-radius:6px}
 .level-btns .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .log-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* ── thinking block ── */
+.thinking-block{margin-bottom:12px;border-left:3px solid var(--accent);padding-left:12px;color:var(--text-dim);font-size:13px}
+.thinking-block summary{cursor:pointer;user-select:none;outline:none;font-weight:600;margin-bottom:8px}
+.thinking-block summary:hover{color:var(--accent)}
+.thinking-content{white-space:pre-wrap;word-break:break-word;opacity:0.8}
 </style>
 </head>
 <body>
@@ -402,7 +408,12 @@ async function sendMsg(){
 
     if(stream){
       const reader=r.body.getReader(),dec=new TextDecoder();
-      let full='';
+      let fullContent='', fullThinking='';
+      resp.innerHTML = '<details class="thinking-block" id="thinkBlock" style="display:none"><summary>深度思考</summary><div class="thinking-content" id="thinkContent"></div></details><div id="ansContent"></div>';
+      const thinkBlock=document.getElementById('thinkBlock');
+      const thinkContent=document.getElementById('thinkContent');
+      const ansContent=document.getElementById('ansContent');
+
       while(1){
         const{done,value}=await reader.read();
         if(done)break;
@@ -410,14 +421,35 @@ async function sendMsg(){
           if(!line.startsWith('data: '))continue;
           const d=line.slice(6).trim();
           if(d==='[DONE]')continue;
-          try{const j=JSON.parse(d);const c=j.choices?.[0]?.delta?.content;if(c){full+=c;resp.textContent=full}}catch(e){}
+          try{
+            const j=JSON.parse(d);
+            const delta=j.choices?.[0]?.delta;
+            if(delta?.reasoning_content){
+              fullThinking+=delta.reasoning_content;
+              thinkBlock.style.display='block';
+              thinkBlock.open=true;
+              thinkContent.textContent=fullThinking;
+            }
+            if(delta?.content){
+              fullContent+=delta.content;
+              ansContent.textContent=fullContent;
+            }
+          }catch(e){}
         }
       }
       timeEl.textContent=((Date.now()-t0)/1000).toFixed(1)+'s';
       status.textContent='流式完成';status.style.color='var(--green)';
     }else{
       const d=await r.json();
-      resp.textContent=d.choices?.[0]?.message?.content||JSON.stringify(d,null,2);
+      const msg=d.choices?.[0]?.message;
+      let html='';
+      if(msg?.reasoning_content){
+        html+=`<details class="thinking-block"><summary>深度思考</summary><div class="thinking-content">${msg.reasoning_content.replace(/</g,'&lt;')}</div></details>`;
+      }
+      if(msg?.content){
+        html+=`<div>${msg.content.replace(/</g,'&lt;')}</div>`;
+      }
+      resp.innerHTML=html||`<pre>${JSON.stringify(d,null,2)}</pre>`;
       timeEl.textContent=((Date.now()-t0)/1000).toFixed(1)+'s';
       status.textContent=r.status+' OK';status.style.color='var(--green)';
     }
