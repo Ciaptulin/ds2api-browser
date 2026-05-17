@@ -376,6 +376,18 @@ async def import_accounts(request: Request, admin_key: str = Header(...)):
                 new_accounts.append(manager.accounts[email])
                 imported += 1
 
+    # 持久化到 settings.json
+    if imported > 0:
+        saved = _load_settings()
+        saved_accounts = saved.get("accounts", [])
+        acc_map = {a.get("email"): a for a in saved_accounts if a.get("email")}
+        for acc in accounts:
+            e = acc.get("email")
+            if e and acc.get("password"):
+                acc_map[e] = acc
+        saved["accounts"] = list(acc_map.values())
+        _save_settings(saved)
+
     # 异步触发新导入账号的预登录
     async def prelogin_new_accounts():
         for account in new_accounts:
@@ -650,6 +662,15 @@ def _apply_settings(data: dict):
             enabled=data["log_file_enabled"],
             max_mb=data.get("log_file_max_mb", 10),
         )
+    if "accounts" in data:
+        for acc in data["accounts"]:
+            if acc.get("email") and acc.get("password") and acc.get("email") not in manager.accounts:
+                manager.add_account(
+                    email=acc["email"],
+                    password=acc["password"],
+                    name=acc.get("name", ""),
+                    proxy=acc.get("proxy")
+                )
 
 
 def _setup_file_handler(enabled: bool, max_mb: int = 10):
