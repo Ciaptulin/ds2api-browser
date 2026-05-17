@@ -69,7 +69,10 @@ app.add_middleware(
 )
 
 config: Config = load_config()
-manager = AccountManager(max_inflight=2)
+manager = AccountManager(
+    max_inflight=2,
+    max_active_browsers=int(os.getenv("DS2API_MAX_ACTIVE_BROWSERS", "50")),
+)
 
 
 class Message(BaseModel):

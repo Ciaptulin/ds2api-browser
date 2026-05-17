@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+.env
+.git
+profiles/
+*.log
+*.bak*
+settings.json
+node_modules
