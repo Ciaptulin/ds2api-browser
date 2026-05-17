@@ -145,7 +145,6 @@ curl http://localhost:5001/admin/stats -H "admin-key: admin"
 ds2api-browser/
 ├── main.py              # FastAPI 服务器（含管理界面）
 ├── deepseek_browser.py  # CloakBrowser 自动化核心
-├── deepseek_api.py      # DeepSeek HTTP API 客户端
 ├── account_manager.py   # 账号池管理
 ├── config.py            # 配置管理
 ├── proxy.py             # 多协议代理（Claude/Gemini/Ollama）
