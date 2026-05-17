@@ -113,9 +113,25 @@ class DeepSeekBrowser:
     async def _auto_login(self):
         logger.info("Logging in as %s...", self.email)
 
+        # 1. 先等待页面加载完成（任意输入框出现），防止因为 Cloudflare 还在转圈导致直接尝试点击失败
+        try:
+            any_input = self.page.locator('input').first
+            await any_input.wait_for(state="visible", timeout=30000)
+        except Exception:
+            pass
+
+        # 2. 尝试切换到“密码登录”模式（如果页面默认是手机验证码登录）
+        try:
+            pwd_tab = self.page.locator('text="密码登录"').first
+            if await pwd_tab.is_visible():
+                await pwd_tab.click()
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.debug("No password login tab found or error: %s", e)
+
         try:
             email_input = self.page.locator('input[placeholder*="邮箱"], input[placeholder*="手机"], input[placeholder*="Email"], input[placeholder*="email"], input[type="text"]').first
-            await email_input.wait_for(state="visible", timeout=30000)
+            await email_input.wait_for(state="visible", timeout=10000)
             await email_input.fill(self.email)
             await asyncio.sleep(0.5)
         except Exception as e:
