@@ -105,6 +105,7 @@ async def list_models(authorization: str = Header(...)):
             {"id": "deepseek-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
             {"id": "deepseek-fast", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
             {"id": "deepseek-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
+            {"id": "deepseek-expert", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
         ],
         "object": "list",
     }
@@ -118,6 +119,7 @@ async def get_model(model_id: str, authorization: str = Header(...)):
         "deepseek-flash": {"id": "deepseek-flash", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
         "deepseek-fast": {"id": "deepseek-fast", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
         "deepseek-pro": {"id": "deepseek-pro", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
+        "deepseek-expert": {"id": "deepseek-expert", "object": "model", "created": int(time.time()), "owned_by": "deepseek"},
     }
 
     if model_id in models:

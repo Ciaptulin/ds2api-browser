@@ -295,15 +295,23 @@ class DeepSeekBrowser:
                 if await fast_btn.count() > 0:
                     await fast_btn.click()
                     await asyncio.sleep(0.5)
-            # 深度思考 / 专家模式
+            # 深度思考 (DeepThink R1)
             elif 'reasoner' in model or 'thinking' in model or 'pro' in model:
                 thinking_btn = self.page.locator(
                     'button:has-text("深度思考"), div:has-text("深度思考"), '
-                    'button:has-text("专家模式"), div:has-text("专家模式"), '
                     'button:has-text("DeepThink"), button:has-text("R1")'
                 ).first
                 if await thinking_btn.count() > 0:
                     await thinking_btn.click()
+                    await asyncio.sleep(0.5)
+
+            # 专家模式 (独立开关)
+            if 'expert' in model:
+                expert_btn = self.page.locator(
+                    'button:has-text("专家模式"), div:has-text("专家模式")'
+                ).first
+                if await expert_btn.count() > 0:
+                    await expert_btn.click()
                     await asyncio.sleep(0.5)
 
             if 'search' in model:
