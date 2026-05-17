@@ -60,7 +60,11 @@ class DeepSeekBrowser:
 
         self.page = await self.context.new_page()
         await self.page.goto(self.DEEPSEEK_URL, timeout=60000)
-        await asyncio.sleep(5)
+        # Wait for page ready instead of fixed sleep
+        try:
+            await self.page.wait_for_selector('textarea', timeout=15000)
+        except Exception:
+            await asyncio.sleep(2)
 
         await self._check_login_state()
 
@@ -149,7 +153,8 @@ class DeepSeekBrowser:
         except Exception:
             raise Exception("Login failed")
 
-    async def _human_delay(self, min_ms: int = 300, max_ms: int = 1500):
+    async def _human_delay(self, min_ms: int = 50, max_ms: int = 150):
+        """Minimal delay for speed — just enough to avoid race conditions."""
         delay = random.uniform(min_ms, max_ms) / 1000
         await asyncio.sleep(delay)
 
@@ -164,9 +169,21 @@ class DeepSeekBrowser:
         return phrases
 
     async def new_chat(self):
+        """Start a new chat by clicking the new-chat button instead of full page reload."""
         try:
+            # Try clicking the "new chat" button first (much faster than goto)
+            new_chat_btn = self.page.locator(
+                'a:has-text("开启新对话"), button:has-text("开启新对话"), '
+                'a:has-text("新对话"), button:has-text("新对话"), '
+                '[class*="new-chat"], [class*="newChat"]'
+            ).first
+            if await new_chat_btn.count() > 0:
+                await new_chat_btn.click()
+                await self.page.wait_for_selector('textarea', timeout=10000)
+                return
+
+            # Fallback: full page reload
             await self.page.goto(self.DEEPSEEK_URL, timeout=30000)
-            await asyncio.sleep(2)
             await self.page.wait_for_selector('textarea', timeout=15000)
         except Exception as e:
             logger.error("New chat error: %s", e)
@@ -291,28 +308,32 @@ class DeepSeekBrowser:
             input_field = self.page.locator('textarea').first
             await input_field.wait_for(state="visible", timeout=15000)
 
-            await self._human_delay(500, 2000)
-
-            await input_field.clear()
-            await input_field.type(prompt, delay=random.randint(30, 80))
-
-            await self._human_delay(200, 800)
-
+            # Fast fill instead of slow character-by-character typing
+            await input_field.fill(prompt)
+            await self._human_delay()
             await input_field.press('Enter')
 
             response = await self._wait_for_response(timeout, prompt)
 
-            await self.delete_chat()
+            # Fire-and-forget cleanup
+            asyncio.create_task(self._safe_delete_chat())
 
             return response
         except Exception as e:
             logger.error("Send message error: %s", e)
             raise
 
+    async def _safe_delete_chat(self):
+        """Non-blocking delete chat wrapper."""
+        try:
+            await self.delete_chat()
+        except Exception as e:
+            logger.debug("[safe_delete] %s", e)
+
     async def _wait_for_response(self, timeout: int, prompt: str = "") -> str:
         deadline = time.time() + timeout
 
-        await asyncio.sleep(3)
+        await asyncio.sleep(0.8)
 
         last_text = ""
         stable_count = 0
@@ -374,13 +395,9 @@ class DeepSeekBrowser:
             input_field = self.page.locator('textarea').first
             await input_field.wait_for(state="visible", timeout=15000)
 
-            await self._human_delay(500, 2000)
-
-            await input_field.clear()
-            await input_field.type(prompt, delay=random.randint(30, 80))
-
-            await self._human_delay(200, 800)
-
+            # Fast fill
+            await input_field.fill(prompt)
+            await self._human_delay()
             await input_field.press('Enter')
 
             deadline = time.time() + timeout
@@ -389,7 +406,7 @@ class DeepSeekBrowser:
 
             skip_phrases = self._get_skip_phrases()
 
-            await asyncio.sleep(3)
+            await asyncio.sleep(0.8)
 
             while time.time() < deadline:
                 try:
