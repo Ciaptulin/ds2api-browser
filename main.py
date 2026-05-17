@@ -414,6 +414,45 @@ async def list_accounts(admin_key: str = Header(...)):
     return {"accounts": accounts, "total": len(accounts)}
 
 
+@app.post("/admin/accounts/login")
+async def login_account(request: Request, admin_key: str = Header(...)):
+    """Manually trigger a login or reconnect for a specific account."""
+    if admin_key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    body = await request.json()
+    email = body.get("email")
+
+    if not email or email not in manager.accounts:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    account = manager.accounts[email]
+
+    async def _do_login():
+        try:
+            logger.info("Manual login triggered for %s...", email)
+            # If it's already logged in, we might want to restart the browser.
+            # get_or_create_browser_with_retry will reuse if account.browser exists.
+            # To force a reconnect, we close the existing one first.
+            if account.browser:
+                try:
+                    await account.browser.close()
+                except Exception:
+                    pass
+                account.browser = None
+                account.logged_in = False
+
+            await manager.get_or_create_browser_with_retry(
+                account, headless=config.browser.headless
+            )
+            logger.info("Manual login OK: %s", email)
+        except Exception as e:
+            logger.error("Manual login FAILED for %s: %s", email, e)
+
+    asyncio.create_task(_do_login())
+    return {"ok": True, "message": "Login task started"}
+
+
 @app.post("/admin/verify")
 async def admin_verify(request: Request):
     """Verify admin key for panel login."""

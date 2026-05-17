@@ -256,8 +256,8 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
         </div>
         <div class="card-body" style="padding:8px 12px">
           <table class="tbl">
-            <thead><tr><th>邮箱</th><th class="hide-m">备注</th><th>登录</th><th>状态</th><th>禁言</th><th class="hide-m">错误</th></tr></thead>
-            <tbody id="tbl"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+            <thead><tr><th>邮箱</th><th class="hide-m">备注</th><th>登录</th><th>状态</th><th>禁言</th><th class="hide-m">错误</th><th>操作</th></tr></thead>
+            <tbody id="tbl"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -531,12 +531,26 @@ async function loadAccounts(){
         <td><span class="badge ${a.in_use?'badge-on':'badge-idle'}">${a.in_use?'使用中':'空闲'}</span></td>
         <td>${a.is_muted?`<span class="badge badge-warn" title="${a.muted_until||''}">禁言</span>`:'<span class="badge badge-idle">正常</span>'}</td>
         <td class="hide-m">${a.error_count>0?'<span class="badge badge-off">'+a.error_count+'</span>':'—'}</td>
+        <td><button class="btn btn-sm" onclick="doLoginAccount('${a.email}')">${a.logged_in?'重连':'登录'}</button></td>
       </tr>`;
     }
-    document.getElementById('tbl').innerHTML=r||'<tr><td colspan="6" class="empty">暂无账号</td></tr>';
+    document.getElementById('tbl').innerHTML=r||'<tr><td colspan="7" class="empty">暂无账号</td></tr>';
   }catch(e){
-    document.getElementById('tbl').innerHTML='<tr><td colspan="6" style="color:var(--red);text-align:center;padding:16px">'+e.message+'</td></tr>';
+    document.getElementById('tbl').innerHTML='<tr><td colspan="7" style="color:var(--red);text-align:center;padding:16px">'+e.message+'</td></tr>';
   }
+}
+
+async function doLoginAccount(email){
+  try{
+    toast('正在唤醒 '+email+'...', 1);
+    await api('/admin/accounts/login',{
+      method:'POST',json:true,
+      body:JSON.stringify({email}),
+      headers:{'admin-key':getAdminKey()}
+    });
+    toast('已触发登录任务', 1);
+    loadAll();
+  }catch(e){toast('触发失败: '+e.message, 0)}
 }
 
 async function doImport(){
