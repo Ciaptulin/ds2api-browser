@@ -268,6 +268,16 @@ async def list_accounts(admin_key: str = Header(...)):
     return {"accounts": accounts, "total": len(accounts)}
 
 
+@app.post("/admin/verify")
+async def admin_verify(request: Request):
+    """Verify admin key for panel login."""
+    body = await request.json()
+    key = body.get("key", "")
+    if key != config.server.admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    return {"ok": True}
+
+
 @app.get("/")
 async def admin_panel():
     return RedirectResponse(url="/static/index.html")
@@ -284,6 +294,22 @@ async def startup():
         )
 
     logger.info("Loaded %d accounts", len(config.accounts))
+
+    # Pre-login all accounts in background so they show online immediately
+    asyncio.create_task(_prelogin_all())
+
+
+async def _prelogin_all():
+    """Pre-login all accounts at startup for instant readiness."""
+    for email, account in manager.accounts.items():
+        try:
+            logger.info("Pre-logging in %s...", email)
+            await manager.get_or_create_browser_with_retry(
+                account, headless=config.browser.headless
+            )
+            logger.info("Pre-login OK: %s (muted=%s)", email, account.is_muted)
+        except Exception as e:
+            logger.error("Pre-login FAILED for %s: %s", email, e)
 
 
 def main():
