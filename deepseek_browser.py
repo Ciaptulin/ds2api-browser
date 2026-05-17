@@ -374,37 +374,38 @@ class DeepSeekBrowser:
         }
         const scope = lastMsg;
 
-        // Extract thinking/reasoning content
-        const thinkEls = scope.querySelectorAll(
-            '[class*="think"], [class*="Think"], [class*="reasoning"], details, [class*="collapse"]'
-        );
-        for (const el of thinkEls) {
-            const t = el.innerText.trim();
-            if (t && t.length > 5) {
-                result.thinking = t.replace(/^.*深度思考[（(].*?[)）].*$/m, '').trim();
-                break;
-            }
-        }
-
-        // Extract answer content (markdown blocks outside thinking)
-        const mdEls = scope.querySelectorAll(
+        // 1. Try to extract from Markdown blocks
+        const mdEls = Array.from(scope.querySelectorAll(
             '[class*="markdown"], [class*="Markdown"], [class*="answer"], [class*="content"]'
-        );
-        for (const el of mdEls) {
-            if (el.closest('[class*="think"], [class*="Think"], [class*="reasoning"], details')) continue;
-            const t = el.innerText.trim();
-            if (t && t.length > 2) {
-                result.answer = t;
-                break;
+        ));
+        // Filter out nested ones to get top-level blocks
+        const topMdEls = mdEls.filter(el => !mdEls.some(p => p !== el && p.contains(el)));
+        
+        let extractedThink = '';
+        let extractedAns = '';
+        
+        if (topMdEls.length >= 2) {
+            // Usually if there are 2 blocks, first is reasoning, last is answer
+            extractedThink = topMdEls[0].innerText.trim();
+            extractedAns = topMdEls[topMdEls.length - 1].innerText.trim();
+        } else if (topMdEls.length === 1) {
+            // Check if there's a visible "深度思考" toggle near it, or assume it's answer
+            const t = topMdEls[0].innerText.trim();
+            // If the whole scope text implies it's still thinking and no answer yet
+            if (scope.innerText.includes('深度思考') && !scope.innerText.includes('已深度思考')) {
+                extractedThink = t;
+            } else {
+                extractedAns = t;
             }
         }
 
-        // Fallback: parse body text if DOM selectors missed it
+        // 2. Fallback: parse raw lines if blocks failed or if it's safer
         const bodyText = scope.innerText || '';
-        if (!result.answer || (!result.thinking && (bodyText.includes('深度思考') || bodyText.includes('思考过程')))) {
+        const hasThinkMarker = bodyText.includes('深度思考') || bodyText.includes('极速思考') || bodyText.includes('思考过程');
+        
+        if (!extractedAns || (!extractedThink && hasThinkMarker)) {
             const lines = bodyText.split('\\n').map(l => l.trim()).filter(Boolean);
-            const skip = ['智能搜索', '快速模式', '专家模式', '极速思考',
-                          '内容由 AI 生成', '开启新对话', '暂无历史对话'];
+            const skip = ['智能搜索', '快速模式', '专家模式', '极速思考', '内容由 AI 生成', '开启新对话', '暂无历史对话'];
             
             let isThinking = false;
             let thinkLines = [];
@@ -413,12 +414,13 @@ class DeepSeekBrowser:
             for (const l of lines) {
                 if (skip.some(s => l === s)) continue;
                 
-                if (l === '深度思考' || l === '思考过程' || l.startsWith('深度思考...') || l.startsWith('极速思考...')) {
-                    isThinking = true;
-                    continue;
-                }
-                if (l.startsWith('已深度思考') || l.startsWith('深度思考（用时') || l.startsWith('已极速思考') || l.startsWith('极速思考（用时')) {
-                    isThinking = false;
+                // UI markers are usually short
+                if (l.length < 30 && (l.includes('深度思考') || l.includes('极速思考') || l.includes('思考过程'))) {
+                    if (l.includes('已') || l.includes('用时') || l.includes('完成')) {
+                        isThinking = false;
+                    } else {
+                        isThinking = true;
+                    }
                     continue;
                 }
                 
@@ -429,15 +431,19 @@ class DeepSeekBrowser:
                 }
             }
             
-            result.thinking = thinkLines.join('\\n');
-            result.answer = ansLines.join('\\n');
+            // Prefer fallback if it extracted something meaningful
+            if (thinkLines.length > 0) extractedThink = thinkLines.join('\\n');
+            if (ansLines.length > 0) extractedAns = ansLines.join('\\n');
         }
+        
+        result.thinking = extractedThink;
+        result.answer = extractedAns;
 
         // Check if response is complete
         const stopBtn = document.querySelector('[class*="stop"], button[aria-label*="stop"]');
         result.done = (!stopBtn || stopBtn.offsetParent === null);
         
-        // If we haven't extracted any text at all, we are NOT done (generation just hasn't started)
+        // If we haven't extracted any text at all, we are NOT done
         if (!result.answer && !result.thinking) {
             result.done = false;
         }
