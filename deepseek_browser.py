@@ -357,10 +357,22 @@ class DeepSeekBrowser:
 
         // Find all assistant message containers (last one is current)
         const msgs = document.querySelectorAll(
-            '[class*="assistant"], [class*="bot-"], [class*="message--"]:not([class*="user"])'
+            '[class*="assistant"], [class*="bot-"], [class*="message--"], [class*="message-wrapper"], [class*="chat-message"]'
         );
-        const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
-        const scope = lastMsg || document.body;
+        let lastMsg = null;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+            const cls = (msgs[i].className || '').toLowerCase();
+            if (!cls.includes('user')) {
+                lastMsg = msgs[i];
+                break;
+            }
+        }
+        
+        // If no assistant message container found yet, it means generation hasn't started. Wait.
+        if (!lastMsg) {
+            return result;
+        }
+        const scope = lastMsg;
 
         // Extract thinking/reasoning content
         const thinkEls = scope.querySelectorAll(
@@ -424,6 +436,11 @@ class DeepSeekBrowser:
         // Check if response is complete
         const stopBtn = document.querySelector('[class*="stop"], button[aria-label*="stop"]');
         result.done = (!stopBtn || stopBtn.offsetParent === null);
+        
+        // If we haven't extracted any text at all, we are NOT done (generation just hasn't started)
+        if (!result.answer && !result.thinking) {
+            result.done = false;
+        }
 
         return result;
     }"""
