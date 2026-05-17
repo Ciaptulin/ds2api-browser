@@ -388,9 +388,11 @@ async def import_accounts(request: Request, admin_key: str = Header(...)):
         saved["accounts"] = list(acc_map.values())
         _save_settings(saved)
 
-    # 异步触发新导入账号的预登录
+    # 异步触发新导入账号的预登录 (只预热最多 max_active_browsers 个，防止卡死)
     async def prelogin_new_accounts():
-        for account in new_accounts:
+        for i, account in enumerate(new_accounts):
+            if i >= manager.max_active_browsers:
+                break
             try:
                 logger.info("Pre-logging in newly imported account %s...", account.email)
                 await manager.get_or_create_browser_with_retry(
@@ -772,14 +774,18 @@ async def startup():
 
 
 async def _prelogin_all():
-    """Pre-login all accounts at startup for instant readiness."""
+    """Pre-login a limited number of accounts at startup for instant readiness."""
+    count = 0
     for email, account in manager.accounts.items():
+        if count >= manager.max_active_browsers:
+            break
         try:
             logger.info("Pre-logging in %s...", email)
             await manager.get_or_create_browser_with_retry(
                 account, headless=config.browser.headless
             )
             logger.info("Pre-login OK: %s (muted=%s)", email, account.is_muted)
+            count += 1
         except Exception as e:
             logger.error("Pre-login FAILED for %s: %s", email, e)
 

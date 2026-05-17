@@ -9,6 +9,8 @@ from deepseek_browser import DeepSeekBrowser
 logger = logging.getLogger(__name__)
 
 
+import time
+
 @dataclass
 class Account:
     email: str
@@ -21,13 +23,15 @@ class Account:
     logged_in: bool = False
     is_muted: bool = False
     muted_until: str = ""
+    last_used: float = 0.0
 
 
 class AccountManager:
-    def __init__(self, max_inflight: int = 1):
+    def __init__(self, max_inflight: int = 1, max_active_browsers: int = 5):
         self.accounts: Dict[str, Account] = {}
         self.queue: deque = deque()
         self.max_inflight = max_inflight
+        self.max_active_browsers = max_active_browsers
         self._lock = asyncio.Lock()
 
     def add_account(self, email: str, password: str, name: str = "", proxy: Optional[str] = None):
@@ -43,6 +47,7 @@ class AccountManager:
             for account in self.accounts.values():
                 if not account.in_use and account.error_count < 3 and not account.is_muted:
                     account.in_use = True
+                    account.last_used = time.time()
                     return account
 
         return await self._wait_for_account()
@@ -58,6 +63,7 @@ class AccountManager:
             for account in self.accounts.values():
                 if not account.in_use and account.error_count < 3 and not account.is_muted:
                     account.in_use = True
+                    account.last_used = time.time()
                     return account
 
         raise RuntimeError("No account available")
@@ -65,6 +71,7 @@ class AccountManager:
     async def release(self, account: Account):
         async with self._lock:
             account.in_use = False
+            account.last_used = time.time()
             if self.queue:
                 event = self.queue.popleft()
                 event.set()
@@ -77,9 +84,21 @@ class AccountManager:
                 event = self.queue.popleft()
                 event.set()
 
+    async def _enforce_browser_limit(self):
+        active = [a for a in self.accounts.values() if a.browser is not None]
+        if len(active) >= self.max_active_browsers:
+            idle = [a for a in active if not a.in_use]
+            if idle:
+                idle.sort(key=lambda x: x.last_used)
+                to_close = len(active) - self.max_active_browsers + 1
+                for a in idle[:to_close]:
+                    logger.info("Closing idle browser for %s to free memory", a.email)
+                    await self.close_browser(a)
+
     async def get_or_create_browser(self, account: Account, headless: bool = True) -> DeepSeekBrowser:
         try:
             if account.browser is None:
+                await self._enforce_browser_limit()
                 account.browser = DeepSeekBrowser(
                     email=account.email,
                     password=account.password,
