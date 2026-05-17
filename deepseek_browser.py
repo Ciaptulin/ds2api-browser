@@ -59,6 +59,10 @@ class DeepSeekBrowser:
             "--disable-sync",
             "--mute-audio",
             "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-site-isolation-trials",
+            "--disable-features=IsolateOrigins,site-per-process,AudioServiceOutOfProcess",
+            "--disable-software-rasterizer",
             "--js-flags=--max-old-space-size=128",  # 限制 V8 引擎内存
             "--renderer-process-limit=1",           # 限制渲染进程
         ]
