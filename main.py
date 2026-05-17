@@ -363,6 +363,7 @@ async def import_accounts(request: Request, admin_key: str = Header(...)):
         raise HTTPException(status_code=400, detail="No accounts provided")
 
     imported = 0
+    new_accounts = []
     for acc in accounts:
         email = acc.get("email")
         password = acc.get("password")
@@ -370,8 +371,25 @@ async def import_accounts(request: Request, admin_key: str = Header(...)):
         proxy = acc.get("proxy")
 
         if email and password:
-            manager.add_account(email, password, name, proxy)
-            imported += 1
+            if email not in manager.accounts:
+                manager.add_account(email, password, name, proxy)
+                new_accounts.append(manager.accounts[email])
+                imported += 1
+
+    # 异步触发新导入账号的预登录
+    async def prelogin_new_accounts():
+        for account in new_accounts:
+            try:
+                logger.info("Pre-logging in newly imported account %s...", account.email)
+                await manager.get_or_create_browser_with_retry(
+                    account, headless=config.browser.headless
+                )
+                logger.info("Pre-login OK: %s", account.email)
+            except Exception as e:
+                logger.error("Pre-login FAILED for %s: %s", account.email, e)
+
+    if new_accounts:
+        asyncio.create_task(prelogin_new_accounts())
 
     return {"success": True, "imported": imported, "total": len(manager.accounts)}
 
