@@ -365,14 +365,38 @@ class DeepSeekBrowser:
             }
         }
 
-        // Fallback: parse body text
-        if (!result.answer) {
+        // Fallback: parse body text if DOM selectors missed it
+        if (!result.answer && !result.thinking) {
             const bodyText = scope.innerText || '';
             const lines = bodyText.split('\\n').map(l => l.trim()).filter(Boolean);
-            const skip = ['深度思考', '智能搜索', '快速模式', '专家模式',
+            const skip = ['智能搜索', '快速模式', '专家模式',
                           '内容由 AI 生成', '开启新对话', '暂无历史对话'];
-            const filtered = lines.filter(l => !skip.some(s => l.includes(s)));
-            result.answer = filtered.join('\\n');
+            
+            let isThinking = false;
+            let thinkLines = [];
+            let ansLines = [];
+            
+            for (const l of lines) {
+                if (skip.some(s => l === s)) continue;
+                
+                if (l === '深度思考' || l === '思考过程' || l.startsWith('深度思考...')) {
+                    isThinking = true;
+                    continue;
+                }
+                if (l.startsWith('已深度思考') || l.startsWith('深度思考（用时')) {
+                    isThinking = false;
+                    continue;
+                }
+                
+                if (isThinking) {
+                    thinkLines.push(l);
+                } else {
+                    ansLines.push(l);
+                }
+            }
+            
+            result.thinking = thinkLines.join('\\n');
+            result.answer = ansLines.join('\\n');
         }
 
         // Check if response is complete
@@ -394,6 +418,9 @@ class DeepSeekBrowser:
         while time.time() < deadline:
             try:
                 result = await self.page.evaluate(self._EXTRACT_JS)
+                # DEBUG LOG
+                logger.debug("Extraction result: %s", str(result)[:200])
+                
                 answer = (result.get("answer") or "").strip()
                 thinking = (result.get("thinking") or "").strip()
 
@@ -441,6 +468,9 @@ class DeepSeekBrowser:
             while time.time() < deadline:
                 try:
                     result = await self.page.evaluate(self._EXTRACT_JS)
+                    # DEBUG LOG
+                    logger.debug("Stream extraction result: %s", str(result)[:200])
+
                     thinking = (result.get("thinking") or "").strip()
                     answer = (result.get("answer") or "").strip()
 
