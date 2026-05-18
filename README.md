@@ -56,6 +56,13 @@ python run.py
 
 ```bash
 nohup python run.py > /tmp/ds2api-browser.log 2>&1 &
+
+# win平台这样操作
+# 启动后台作业
+nohup python run.py > ds2api-browser.log 2>&1 &
+#执行后，你会看到类似这样的输出：[1] 12345  其中 [1]是作业编号，12345是进程ID。
+# 将作业与当前会话分离
+disown
 ```
 
 ## Web 管理界面
