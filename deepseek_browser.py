@@ -47,78 +47,107 @@ class DeepSeekBrowser:
         return self.email
 
     async def start(self):
-        abs_profile_dir = Path(self.profile_dir).resolve()
-        abs_profile_dir.mkdir(parents=True, exist_ok=True)
+        """
+        启动并初始化浏览器上下文，导航到 DeepSeek 聊天页面。
+        性能优化：添加了省内存的 Chromium 参数，可根据需要取消注释。
+        """
+        # 1. 准备用户数据目录（绝对路径）
+        profile_dir_abs = Path(self.profile_dir).resolve()
+        profile_dir_abs.mkdir(parents=True, exist_ok=True)
 
-        # 准备参数
-        params = {
-            "user_data_dir": str(abs_profile_dir),
-            "headless": self.headless,
-        }
-        params["viewport"] = {"width": 1280, "height": 720}
-        params["locale"] = "zh-CN"
-        params["args"] = ["--disable-gpu", "--disable-dev-shm-usage"]
-        params["humanize"] = self.humanize  # 可能是 True 或 False
-        # 只有当 proxy 是非空字符串时才传递
-        if self.proxy and self.proxy.strip():
-            params["proxy"] = self.proxy
-        else:
-            # 确保不传递 proxy 参数（即删除该键）
-            params.pop("proxy", None)
-        # 后面逐步添加其他参数到 params 字典
-        print(f"[DEBUG] Launch params: {params}")
-
-        # 最小参数集（与测试脚本完全相同）
-        self.context = await launch_persistent_context_async(**params)
-        self.page = await self.context.new_page()
-        await self.page.goto(self.DEEPSEEK_URL, timeout=60000)
-        try:
-            await self.page.wait_for_selector('textarea', timeout=15000)
-        except Exception:
-            await asyncio.sleep(2)
-        await self._check_login_state()
-
-    async def start1(self):
-        self.profile_dir.mkdir(parents=True, exist_ok=True)
-
-        # 极致的省内存参数
+        # 2. 构建 Chromium 参数列表（性能优化）
         args = [
             "--disable-gpu",
             "--disable-dev-shm-usage",
-            #"--disable-extensions",
-            #"--disable-background-networking",
-            #"--disable-default-apps",
-            #"--disable-sync",
-            #"--mute-audio",
-            #"--no-sandbox",
-            #"--js-flags=--max-old-space-size=128",  # 限制 V8 引擎内存
-            #"--renderer-process-limit=1",           # 限制渲染进程
+            # ====== 以下为可选的省内存参数 ======
+            "--disable-extensions",             # 禁用扩展，减少内存
+            "--disable-background-networking",  # 禁止后台网络请求
+            "--disable-default-apps",           # 禁用默认应用
+            "--disable-sync",                   # 禁用同步服务
+            "--mute-audio",                     # 静音
+            "--js-flags=--max-old-space-size=128",  # 限制 V8 堆内存 128MB
+            "--renderer-process-limit=1",       # 限制渲染进程数为 1（单标签页场景）
+            "--no-sandbox"
+            # 注意：--no-sandbox 在 Windows 下无效且可能导致问题，不要添加
         ]
-        print("ARGS:", args)
-        print("PROXY:", self.proxy)
-        print("USER_DATA_DIR:", str(self.profile_dir))
-        # 确保 proxy 是 None 而不是空字符串或 False 值
-        proxy_to_use = self.proxy if self.proxy else None
-        print(f"[DEBUG] proxy_to_use = {proxy_to_use!r}")  # 调试打印
-        self.context = await launch_persistent_context_async(
-            user_data_dir=str(self.profile_dir),
-            headless=self.headless,
-            humanize=self.humanize,
-            proxy=self.proxy,
-            viewport={"width": 1280, "height": 720}, # 减小渲染面积，降低合成内存
-            locale="zh-CN",
-            args=args,
-        )
 
+        # 3. 构建启动参数（基础必需）
+        launch_params = {
+            "user_data_dir": str(profile_dir_abs),
+            "headless": self.headless,
+            "viewport": {"width": 1280, "height": 720},
+            "locale": "zh-CN",
+            "humanize": self.humanize,
+            "args": args,
+        }
+
+        # 4. 代理处理（只有有效字符串才添加）
+        if self.proxy and isinstance(self.proxy, str) and self.proxy.strip():
+            launch_params["proxy"] = self.proxy.strip()
+            logger.debug(f"Using proxy: {self.proxy}")
+        else:
+            launch_params.pop("proxy", None)  # 确保无空代理参数
+
+        # 5. 调试输出（可保留或改为 logger.debug）
+        print(f"[DEBUG] Launch params: {launch_params}")
+
+        # 6. 启动持久化浏览器上下文
+        self.context = await launch_persistent_context_async(**launch_params)
+
+        # 7. 创建新页面并导航
         self.page = await self.context.new_page()
         await self.page.goto(self.DEEPSEEK_URL, timeout=60000)
-        # Wait for page ready instead of fixed sleep
+
+        # 8. 等待页面准备就绪
         try:
             await self.page.wait_for_selector('textarea', timeout=15000)
         except Exception:
             await asyncio.sleep(2)
 
+        # 9. 检查登录状态
         await self._check_login_state()
+    # 该函数已废弃，会传递空URL，导致登录失败
+    # async def start1(self):
+    #     self.profile_dir.mkdir(parents=True, exist_ok=True)
+    #
+    #     # 极致的省内存参数
+    #     args = [
+    #         "--disable-gpu",
+    #         "--disable-dev-shm-usage",
+    #         #"--disable-extensions",
+    #         #"--disable-background-networking",
+    #         #"--disable-default-apps",
+    #         #"--disable-sync",
+    #         #"--mute-audio",
+    #         #"--no-sandbox",
+    #         #"--js-flags=--max-old-space-size=128",  # 限制 V8 引擎内存
+    #         #"--renderer-process-limit=1",           # 限制渲染进程
+    #     ]
+    #     print("ARGS:", args)
+    #     print("PROXY:", self.proxy)
+    #     print("USER_DATA_DIR:", str(self.profile_dir))
+    #     # 确保 proxy 是 None 而不是空字符串或 False 值
+    #     proxy_to_use = self.proxy if self.proxy else None
+    #     print(f"[DEBUG] proxy_to_use = {proxy_to_use!r}")  # 调试打印
+    #     self.context = await launch_persistent_context_async(
+    #         user_data_dir=str(self.profile_dir),
+    #         headless=self.headless,
+    #         humanize=self.humanize,
+    #         proxy=self.proxy,
+    #         viewport={"width": 1280, "height": 720}, # 减小渲染面积，降低合成内存
+    #         locale="zh-CN",
+    #         args=args,
+    #     )
+    #
+    #     self.page = await self.context.new_page()
+    #     await self.page.goto(self.DEEPSEEK_URL, timeout=60000)
+    #     # Wait for page ready instead of fixed sleep
+    #     try:
+    #         await self.page.wait_for_selector('textarea', timeout=15000)
+    #     except Exception:
+    #         await asyncio.sleep(2)
+    #
+    #     await self._check_login_state()
 
     async def _check_login_state(self):
         current_url = self.page.url
@@ -172,7 +201,16 @@ class DeepSeekBrowser:
         except Exception:
             pass
 
-        # 2. 修改这里：更智能地切换到密码登录模式
+        # 2. 修改：注释掉原有的“密码登录”文本点击方式，改用新函数的 XPath 锁按钮
+        # try:
+        #     pwd_tab = self.page.locator('text="密码登录"').first
+        #     if await pwd_tab.is_visible():
+        #         await pwd_tab.click()
+        #         await asyncio.sleep(0.5)
+        # except Exception as e:
+        #     logger.debug("No password login tab found or error: %s", e)
+
+        # 新函数逻辑：通过特定 XPath 切换到密码登录模式
         try:
             lock_button = self.page.locator(
                 '//*[@id="root"]/div/div/div[2]/div[1]/div/div[2]/div[1]/div[4]/div/div[2]/button[1]')
@@ -185,7 +223,7 @@ class DeepSeekBrowser:
         except Exception as e:
             logger.error("Clicking lock button via XPath failed: %s", e)
 
-        # 3. 等待并填写邮箱/手机
+        # 3. 填写邮箱/手机（保留原有异常截图，内部增加验证码检测及二次点击）
         try:
             email_input = self.page.locator(
                 'input[placeholder*="邮箱"], input[placeholder*="手机"], input[placeholder*="Email"], input[placeholder*="email"], input[type="text"]').first
@@ -193,11 +231,10 @@ class DeepSeekBrowser:
             await email_input.fill(self.email)
             await asyncio.sleep(0.5)
 
-            # 检查是否需要输入验证码（说明还在验证码模式）
+            # 新增：检查是否需要输入验证码（说明还在验证码模式）
             verification_input = self.page.locator('input[placeholder*="验证码"]').first
             if await verification_input.is_visible(timeout=1000):
                 logger.warning("Still in verification code mode, retrying lock icon click")
-                # 再次尝试点击锁图标
                 lock_icon = self.page.locator('div.ds-sign-in-form_icon > svg').first
                 if await lock_icon.is_visible():
                     await lock_icon.click()
@@ -242,69 +279,6 @@ class DeepSeekBrowser:
                 await self.page.screenshot(path=f"/tmp/login_fail_{self.email.replace('@', '_at_')}_final.png")
                 logger.error("Final login screenshot saved to /tmp/login_fail_%s_final.png",
                              self.email.replace('@', '_at_'))
-            except Exception:
-                pass
-            raise Exception("Login failed")
-    async def _auto_login1(self):
-        logger.info("Logging in as %s...", self.email)
-
-        # 1. 先等待页面加载完成（任意输入框出现），防止因为 Cloudflare 还在转圈导致直接尝试点击失败
-        try:
-            any_input = self.page.locator('input').first
-            await any_input.wait_for(state="visible", timeout=30000)
-        except Exception:
-            pass
-
-        # 2. 尝试切换到“密码登录”模式（如果页面默认是手机验证码登录）
-        try:
-            pwd_tab = self.page.locator('text="密码登录"').first
-            if await pwd_tab.is_visible():
-                await pwd_tab.click()
-                await asyncio.sleep(0.5)
-        except Exception as e:
-            logger.debug("No password login tab found or error: %s", e)
-
-        try:
-            email_input = self.page.locator('input[placeholder*="邮箱"], input[placeholder*="手机"], input[placeholder*="Email"], input[placeholder*="email"], input[type="text"]').first
-            await email_input.wait_for(state="visible", timeout=10000)
-            await email_input.fill(self.email)
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            # Take screenshot to debug
-            try:
-                await self.page.screenshot(path=f"/tmp/login_fail_{self.email.replace('@','_at_')}.png")
-                logger.error("Screenshot saved to /tmp/login_fail_%s.png", self.email.replace('@', '_at_'))
-            except Exception:
-                pass
-            logger.error("Email input error: %s", e)
-            raise
-
-        try:
-            password_input = self.page.locator('input[type="password"]').first
-            await password_input.wait_for(state="visible", timeout=5000)
-            await password_input.fill(self.password)
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            logger.error("Password input error: %s", e)
-            raise
-
-        try:
-            login_button = self.page.locator('button:has-text("登录")').first
-            await login_button.click()
-            await asyncio.sleep(3)
-        except Exception as e:
-            logger.error("Login button error: %s", e)
-            raise
-
-        try:
-            await self.page.wait_for_selector('textarea', timeout=30000)
-            self._logged_in = True
-            self._ready = True
-            logger.info("Login successful!")
-        except Exception:
-            try:
-                await self.page.screenshot(path=f"/tmp/login_fail_{self.email.replace('@','_at_')}_final.png")
-                logger.error("Final login screenshot saved to /tmp/login_fail_%s_final.png", self.email.replace('@', '_at_'))
             except Exception:
                 pass
             raise Exception("Login failed")
