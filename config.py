@@ -13,7 +13,7 @@ class AccountConfig:
 
 @dataclass
 class ServerConfig:
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 5001
     admin_key: str = "admin"
 
@@ -56,7 +56,7 @@ class Config:
 
         return cls(
             server=ServerConfig(
-                host=os.getenv("DS2API_HOST", "0.0.0.0"),
+                host=os.getenv("DS2API_HOST", "127.0.0.1"),
                 port=int(os.getenv("DS2API_PORT", "5001")),
                 admin_key=os.getenv("DS2API_ADMIN_KEY", "admin"),
             ),
